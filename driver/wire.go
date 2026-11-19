@@ -20,7 +20,23 @@ const (
 	methodPrinterRestart   = "printer.restart"
 	methodFirmwareRestart  = "printer.firmware_restart"
 	methodEmergencyStop    = "printer.emergency_stop"
+
+	methodRoots           = "server.files.roots"
+	methodGetDirectory    = "server.files.get_directory"
+	methodMetadata        = "server.files.metadata"
+	methodPostDirectory   = "server.files.post_directory"
+	methodDeleteDirectory = "server.files.delete_directory"
+	methodDeleteFile      = "server.files.delete_file"
 )
+
+// notifyFilelistChanged is the notification Moonraker sends when a file or
+// folder under a root changes.
+//
+//nolint:unused // read by the notification handler in a later task.
+const notifyFilelistChanged = "notify_filelist_changed"
+
+// gcodesRoot is the Moonraker file root this driver exposes as its one storage.
+const gcodesRoot = "gcodes"
 
 // notifyStatusUpdate is the notification a subscription arrives as. Its params
 // are the changed status and the Klipper event time, in that order.

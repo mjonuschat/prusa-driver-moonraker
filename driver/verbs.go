@@ -107,7 +107,7 @@ func temperatureArgument(ceiling float64) connectorapi.Value {
 // is copied from the resolved set so that the intersection changes nothing but
 // the heater bounds this function sets on purpose.
 func probe(
-	available []string, heaters map[string]heaterConfig, extruders int, resolved connectorapi.Set,
+	available []string, heaters map[string]heaterConfig, extruders int, gcodes gcodesState, resolved connectorapi.Set,
 ) connectorapi.Set {
 	claimed := connectorapi.Set{}
 
@@ -125,6 +125,17 @@ func probe(
 	// Klipper's virtual_sdcard section is what printer.print.start loads from.
 	if slices.Contains(available, objectVirtualSDCard) {
 		carry(claimed, resolved, VerbStartPrint, ArgStartPath)
+	}
+
+	// Listing needs the gcodes root. Changing it also needs the root to be
+	// writable.
+	if gcodes.present {
+		carry(claimed, resolved, connectorapi.VerbSendInfo, connectorapi.VerbSendFileInfo)
+	}
+
+	if gcodes.present && gcodes.writable {
+		carry(claimed, resolved,
+			connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder)
 	}
 
 	carry(claimed, resolved, VerbResetPrinter, VerbReset)

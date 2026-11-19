@@ -65,6 +65,11 @@ func TestEveryNewVerbIsAcceptedInTheRightStates(t *testing.T) {
 		{moonraker.VerbReset, all},
 		{moonraker.VerbSendGCode, all[:5]},
 		{moonraker.VerbForceGCode, all},
+		{connectorapi.VerbSendInfo, all},
+		{connectorapi.VerbSendFileInfo, all},
+		{connectorapi.VerbCreateFolder, all},
+		{connectorapi.VerbDeleteFile, all},
+		{connectorapi.VerbDeleteFolder, all},
 	}
 
 	for _, tc := range cases {

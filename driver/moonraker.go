@@ -236,6 +236,12 @@ func (d *Driver) Baseline() connectorapi.Set {
 		ArgGCode:          gcodeArgument(),
 		VerbForceGCode:    {Flag: true},
 		ArgForceGCode:     forceGCodeArgument(),
+
+		connectorapi.VerbSendInfo:     {Flag: true},
+		connectorapi.VerbSendFileInfo: {Flag: true},
+		connectorapi.VerbCreateFolder: {Flag: true},
+		connectorapi.VerbDeleteFile:   {Flag: true},
+		connectorapi.VerbDeleteFolder: {Flag: true},
 	}
 }
 

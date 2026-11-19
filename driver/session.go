@@ -85,6 +85,10 @@ type Session struct {
 	// connectorapi.ReportsProbe and narrows the set it commands against to it.
 	probe connectorapi.Set
 
+	// files is the storage this machine reports, which a later file event
+	// marks stale.
+	files filesState
+
 	// reader gives each Klipper print an id, which the machine does not, and
 	// remembers which head prints. See telemetry.go.
 	reader reader
@@ -181,7 +185,12 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		s.noteState(patch)
 	}
 
-	s.probe = probe(listed.Objects, heaters, len(extruders), offered)
+	gcodes, err := s.readStorage(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, offered)
 
 	return offered.Intersect(s.probe), nil
 }

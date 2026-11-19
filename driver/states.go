@@ -33,6 +33,10 @@ const (
 // states is this dialect's declared state set.
 func states() connectorapi.StateSet {
 	idle := []connectorapi.Capability{VerbSendStateInfo, VerbNozzleTarget, VerbBedTarget}
+	files := []connectorapi.Capability{
+		connectorapi.VerbSendInfo, connectorapi.VerbSendFileInfo,
+		connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
+	}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -43,14 +47,14 @@ func states() connectorapi.StateSet {
 
 	return connectorapi.StateSet{
 		States: []connectorapi.DeviceState{
-			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle)},
+			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
-				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle)},
+				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle)},
-			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle)},
-			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle)},
-			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle)},
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files)},
+			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files)},
+			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files)},
+			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},
 		},
 		Transitions: []connectorapi.Transition{
 			{From: stateIdle, To: statePrinting, Verb: VerbStartPrint},
