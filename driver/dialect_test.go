@@ -560,3 +560,20 @@ func TestTheDialectDeclaresTheKlipperRow(t *testing.T) {
 	require.Equal(t, connectorapi.ArtworkSVG, klipper.Artwork.MediaType)
 	require.NotEmpty(t, klipper.Artwork.Bytes, "the drawing was not embedded")
 }
+
+// print_stats stays standby after M112 on an idle machine, so the state comes
+// from webhooks.
+func TestAnEmergencyShutdownOfAnIdleMachineReachesTheStateTree(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	machine.Push(map[string]map[string]any{
+		"webhooks": {"state": "shutdown", "state_message": "Shutdown due to M112 command"},
+	})
+	collect(t, session, map[string]string{"/state": `"ERROR"`})
+
+	machine.Push(map[string]map[string]any{"webhooks": {"state": "ready"}})
+	collect(t, session, map[string]string{"/state": `"IDLE"`})
+}

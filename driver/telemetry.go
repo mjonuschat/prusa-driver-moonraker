@@ -115,8 +115,9 @@ const jobStartRounding = time.Minute
 // Moonraker sends only what changed, so a reading alone does not say which
 // print is on the bed or which head is printing.
 type reader struct {
-	prints prints
-	heads  heads
+	prints  prints
+	heads   heads
+	machine machineState
 }
 
 // patchesFrom turns one reading of the Klipper objects into patches, in a fixed
@@ -133,7 +134,7 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 	var out []connectorapi.StatePatch
 
 	stats := objects[objectPrintStats]
-	out = appendState(out, stats["state"])
+	out = r.machine.appendState(out, stats["state"], objects[objectWebhooks]["state"])
 
 	// Klipper reports print_stats whether a print is on the bed or not: an idle
 	// machine sends state "standby", an empty filename and a print_duration of
@@ -305,23 +306,48 @@ func objectFields(status map[string]json.RawMessage) map[string]map[string]json.
 	return out
 }
 
-// appendState maps Klipper's own state word onto the one every dialect here
-// reports.
-func appendState(
-	out []connectorapi.StatePatch, raw json.RawMessage,
+// machineState is the last print_stats.state and webhooks.state heard.
+// Moonraker sends only what changed, and print_stats stays "standby" after an
+// M112 on an idle machine, so the state word needs both.
+type machineState struct {
+	print, hook string
+}
+
+// appendState maps Klipper's own state words onto the one every dialect here
+// reports. It writes /state only when this call supplied a non-empty value. A
+// webhooks state other than "ready" is ERROR; otherwise the print state is
+// mapped, and nothing is written while none has been heard.
+func (m *machineState) appendState(
+	out []connectorapi.StatePatch, printState, hookState json.RawMessage,
 ) []connectorapi.StatePatch {
-	if len(raw) == 0 {
+	heard := false
+
+	if value := stringOf(printState); value != "" {
+		m.print, heard = value, true
+	}
+
+	if value := stringOf(hookState); value != "" {
+		m.hook, heard = value, true
+	}
+
+	if !heard {
 		return out
 	}
 
-	var reported string
-	if json.Unmarshal(raw, &reported) != nil || reported == "" {
-		return out
-	}
+	var word string
 
-	word, known := stateWords[reported]
-	if !known {
-		word = strings.ToUpper(reported)
+	switch {
+	case m.hook != "" && m.hook != "ready":
+		word = "ERROR"
+	case m.print == "":
+		return out
+	default:
+		var known bool
+
+		word, known = stateWords[m.print]
+		if !known {
+			word = strings.ToUpper(m.print)
+		}
 	}
 
 	encoded, err := json.Marshal(word)
@@ -330,6 +356,15 @@ func appendState(
 	}
 
 	return append(out, connectorapi.StatePatch{Path: statePath, Value: encoded})
+}
+
+func stringOf(raw json.RawMessage) string {
+	var value string
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+
+	return value
 }
 
 // appendVerbatim passes a value on exactly as the machine encoded it. A driver

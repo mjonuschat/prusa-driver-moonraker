@@ -34,6 +34,7 @@ const (
 	objectGcodeMove     = "gcode_move"
 	objectPauseResume   = "pause_resume"
 	objectConfigFile    = "configfile"
+	objectWebhooks      = "webhooks"
 )
 
 // subscribed is every object whose readings become state patches, in the order
@@ -42,7 +43,7 @@ const (
 //nolint:gochecknoglobals // a fixed list, read-only after init.
 var subscribed = []string{
 	objectPrintStats, objectDisplayStatus, objectExtruder,
-	objectHeaterBed, objectToolhead, objectGcodeMove,
+	objectHeaterBed, objectToolhead, objectGcodeMove, objectWebhooks,
 }
 
 // rpcRequest is one call on its way to the machine.

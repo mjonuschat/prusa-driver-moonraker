@@ -326,3 +326,73 @@ func TestAStartSplitAcrossTwoNotificationsKeepsItsFile(t *testing.T) {
 		t.Errorf("the id moved to %q, held %q", again, held.prints.id)
 	}
 }
+
+func stateOf(patches []connectorapi.StatePatch) (string, bool) {
+	for _, patch := range patches {
+		if patch.Path == statePath {
+			return string(patch.Value), true
+		}
+	}
+
+	return "", false
+}
+
+func TestAShutdownMachineReportsErrorWhateverThePrintStatsSay(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	patches := held.patchesFrom(reading(`{
+		"print_stats": {"state": "standby"},
+		"webhooks": {"state": "shutdown"}
+	}`, t), 0, time.Unix(0, 0))
+
+	if got, _ := stateOf(patches); got != `"ERROR"` {
+		t.Errorf("/state = %s, want \"ERROR\"", got)
+	}
+}
+
+func TestAMachineThatIsReadyAgainReportsTheLastPrintState(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	held.patchesFrom(reading(`{
+		"print_stats": {"state": "paused"},
+		"webhooks": {"state": "shutdown"}
+	}`, t), 0, time.Unix(0, 0))
+
+	patches := held.patchesFrom(reading(`{"webhooks": {"state": "ready"}}`, t), 0, time.Unix(0, 0))
+
+	if got, _ := stateOf(patches); got != `"PAUSED"` {
+		t.Errorf("/state = %s, want \"PAUSED\"", got)
+	}
+}
+
+func TestAWebhooksReadingAloneBeforeAnyPrintStateWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	patches := held.patchesFrom(reading(`{"webhooks": {"state": "ready"}}`, t), 0, time.Unix(0, 0))
+
+	if got, ok := stateOf(patches); ok {
+		t.Errorf("/state = %s, want no patch", got)
+	}
+
+	held = &reader{}
+	patches = held.patchesFrom(reading(`{"webhooks": {"state": "startup"}}`, t), 0, time.Unix(0, 0))
+
+	if got, _ := stateOf(patches); got != `"ERROR"` {
+		t.Errorf("/state = %s, want \"ERROR\"", got)
+	}
+}
+
+func TestAPrintStatsReadingWithoutWebhooksKeepsTheHookState(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	held.patchesFrom(reading(`{"webhooks": {"state": "shutdown"}}`, t), 0, time.Unix(0, 0))
+	patches := held.patchesFrom(reading(`{"print_stats": {"state": "standby"}}`, t), 0, time.Unix(0, 0))
+
+	if got, _ := stateOf(patches); got != `"ERROR"` {
+		t.Errorf("/state = %s, want \"ERROR\"", got)
+	}
+}
