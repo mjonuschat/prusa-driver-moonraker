@@ -89,6 +89,8 @@ type Session struct {
 	// marks stale.
 	files filesState
 
+	rescans rescanQueue
+
 	unit    string
 	folders *folderMemory
 
@@ -180,6 +182,13 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 
 	heaters := heaterBounds(dumped)
 
+	// Storage is read before subscribing: callSync drops notifications while it
+	// waits, so no status update may be in flight yet.
+	gcodes, err := s.readStorage(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var opening statusReply
 	if err = s.callSync(ctx, methodObjectsSubscribe, objectsParam(s.asked), &opening); err != nil {
 		return nil, err
@@ -192,11 +201,6 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 
 	for _, patch := range opened {
 		s.noteState(patch)
-	}
-
-	gcodes, err := s.readStorage(ctx)
-	if err != nil {
-		return nil, err
 	}
 
 	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, offered)
@@ -258,7 +262,6 @@ func (s *Session) begin(identity connectorapi.Identity, caps connectorapi.Set) {
 	if s.folders != nil {
 		recorded := s.folders.recorded(s.unit)
 		if len(recorded) > 0 {
-			s.changes = make(chan connectorapi.FileChange, filesChangedDepth+len(recorded)+1)
 			s.changes <- rescanOf(gcodesRoot)
 
 			for _, folder := range recorded {

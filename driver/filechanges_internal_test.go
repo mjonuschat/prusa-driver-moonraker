@@ -1,7 +1,10 @@
 package moonraker
 
 import (
+	"fmt"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -144,4 +147,35 @@ func TestAnUnknownActionEmitsNothing(t *testing.T) {
 	t.Parallel()
 
 	require.Empty(t, changesOf(filelistEvent{Action: "teleport_file", Item: gcodesItem("a.gcode")}))
+}
+
+func TestOverflowKeepsARescanOfEveryListedFolder(t *testing.T) {
+	t.Parallel()
+
+	var memory folderMemory
+
+	const folders = 20
+
+	for i := range folders {
+		memory.remember("u", fmt.Sprintf("gcodes/%d", i))
+	}
+
+	session := &Session{
+		unit: "u", folders: &memory, log: slog.New(slog.DiscardHandler),
+		changes: make(chan connectorapi.FileChange, 2), done: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(session.done) })
+
+	session.overflow("gcodes/x")
+
+	seen := map[string]bool{}
+
+	for len(seen) < folders+1 {
+		select {
+		case change := <-session.changes:
+			seen[change.File.Path] = true
+		case <-time.After(2 * time.Second):
+			require.FailNow(t, "rescans were dropped", "got %d", len(seen))
+		}
+	}
 }

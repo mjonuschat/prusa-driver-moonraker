@@ -104,3 +104,39 @@ func TestAMalformedNotificationIsCountedAndSurvived(t *testing.T) {
 	}, settle, 10*time.Millisecond)
 	require.Equal(t, "gcodes/after.gcode", nextChange(t, changes).File.Path)
 }
+
+func TestAFullBufferLeavesARescanOfGcodes(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	changes := filesChangedOf(t, connect(t, machine))
+
+	for range 600 {
+		machine.NotifyFiles(created("gcodes", "bulk.gcode"))
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	var sawRescan bool
+
+	for len(changes) > 0 {
+		change := <-changes
+		sawRescan = sawRescan || (change.Rescan && change.File.Path == "gcodes")
+	}
+
+	require.True(t, sawRescan)
+}
+
+func TestStoragesRefreshAfterAFileChange(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+	changes := filesChangedOf(t, session)
+
+	machine.SetFreeSpace(7)
+	machine.NotifyFiles(created("gcodes", "up.gcode"))
+	nextChange(t, changes)
+
+	require.Equal(t, int64(7), storagesOf(t, session)[0].FreeSpace)
+}

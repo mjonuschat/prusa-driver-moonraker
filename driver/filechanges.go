@@ -3,13 +3,14 @@ package moonraker
 import (
 	"encoding/json"
 	"path"
+	"slices"
+	"sync"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 )
 
 // filesChangedDepth bounds how many file changes may wait for the host. A
-// change past it is dropped, and the host's next listing of the folder is what
-// catches up.
+// change past it replaces the queue with a rescan of the gcodes storage.
 const filesChangedDepth = 512
 
 var _ interface {
@@ -125,6 +126,16 @@ func (s *Session) filesChanged(params json.RawMessage) {
 		return
 	}
 
+	// The host rescans one folder, not its descendants, so a root-wide change
+	// also needs every folder it has listed.
+	if event.Action == "root_update" && s.folders != nil {
+		for _, folder := range s.folders.recorded(s.unit) {
+			if folder != gcodesRoot {
+				changes = append(changes, rescanOf(folder))
+			}
+		}
+	}
+
 	s.files.mu.Lock()
 	s.files.stale = true
 	s.files.mu.Unlock()
@@ -133,7 +144,91 @@ func (s *Session) filesChanged(params json.RawMessage) {
 		select {
 		case s.changes <- change:
 		default:
-			s.log.Debug("a file change was dropped because the host is not reading them", "path", change.File.Path)
+			s.overflow(change.File.Path)
 		}
 	}
+}
+
+// overflow runs when the queue is full. The queued changes are discarded and
+// a rescan of gcodes and of every folder the host has listed takes their place, so the host
+// relists what it missed instead of keeping a wrong tree.
+func (s *Session) overflow(path string) {
+	s.log.Debug("the file change queue is full, asking the host to rescan", "path", path)
+
+	for {
+		select {
+		case <-s.changes:
+			continue
+		default:
+		}
+
+		break
+	}
+
+	s.queueRescan(gcodesRoot)
+
+	if s.folders == nil {
+		return
+	}
+
+	for _, folder := range s.folders.recorded(s.unit) {
+		if folder != gcodesRoot {
+			s.queueRescan(folder)
+		}
+	}
+}
+
+// queueRescan queues a rescan without ever dropping it. When the channel is
+// full the folder waits in an unbounded set that a pump goroutine hands to the
+// channel as the host reads, so no listed folder keeps stale contents.
+func (s *Session) queueRescan(folder string) {
+	select {
+	case s.changes <- rescanOf(folder):
+		return
+	default:
+	}
+
+	s.rescans.mu.Lock()
+	defer s.rescans.mu.Unlock()
+
+	if slices.Contains(s.rescans.waiting, folder) {
+		return
+	}
+
+	s.rescans.waiting = append(s.rescans.waiting, folder)
+
+	if !s.rescans.pumping {
+		s.rescans.pumping = true
+
+		go s.pumpRescans()
+	}
+}
+
+func (s *Session) pumpRescans() {
+	for {
+		s.rescans.mu.Lock()
+		if len(s.rescans.waiting) == 0 {
+			s.rescans.pumping = false
+			s.rescans.mu.Unlock()
+
+			return
+		}
+
+		folder := s.rescans.waiting[0]
+		s.rescans.waiting = s.rescans.waiting[1:]
+		s.rescans.mu.Unlock()
+
+		select {
+		case s.changes <- rescanOf(folder):
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// rescanQueue holds rescans that did not fit in the change channel.
+type rescanQueue struct {
+	mu      sync.Mutex
+	waiting []string
+	pumping bool
 }

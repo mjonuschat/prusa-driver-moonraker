@@ -56,8 +56,20 @@ type filesState struct {
 	stale    bool
 }
 
-// Storages is the storage list held from the handshake. It sends nothing.
-func (s *Session) Storages(_ context.Context) ([]connectorapi.Storage, error) {
+// Storages is the storage list held from the handshake. After a file change it
+// first reads the free space again.
+func (s *Session) Storages(ctx context.Context) ([]connectorapi.Storage, error) {
+	s.files.mu.Lock()
+	stale := s.files.stale && len(s.files.storages) > 0
+	s.files.mu.Unlock()
+
+	if stale {
+		reply, refusal, err := s.directory(ctx, gcodesRoot)
+		if err == nil && refusal == nil && reply.DiskUsage != nil {
+			s.setFreeSpace(*reply.DiskUsage)
+		}
+	}
+
 	s.files.mu.Lock()
 	defer s.files.mu.Unlock()
 
