@@ -335,6 +335,22 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		return methodPrintStart, map[string]any{"filename": cmd.Args["path"]}, nil
 	}
 
+	switch cmd.Verb {
+	case VerbSendGCode:
+		line, lineErr := gcodeLine(cmd.Args[gcodeArgName])
+		if lineErr != nil {
+			return "", nil, lineErr
+		}
+
+		return methodGcodeScript, map[string]any{"script": line}, nil
+	case VerbForceGCode:
+		if stopErr := emergencyStop(cmd.Args[gcodeArgName]); stopErr != nil {
+			return "", nil, stopErr
+		}
+
+		return methodEmergencyStop, nil, nil
+	}
+
 	if named, ok := methodFor(cmd.Verb); ok {
 		return named, nil, nil
 	}

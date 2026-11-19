@@ -608,3 +608,68 @@ func TestAMachineWithNoVirtualSDCardIsNotOfferedStartPrint(t *testing.T) {
 	require.False(t, caps.Has(moonraker.VerbStartPrint))
 	require.NotContains(t, caps, moonraker.ArgStartPath)
 }
+
+func TestSendingGcodeReachesTheMachineAsAScript(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	result, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbSendGCode, Args: map[string]string{"gcode": "M104 S215"},
+	})
+	require.NoError(t, err)
+	require.True(t, result.OK)
+	require.Equal(t, []string{"M104 S215"}, machine.Scripts())
+}
+
+func TestAnEmergencyStopIsNotASentScript(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	result, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbForceGCode, Args: map[string]string{"gcode": "M112"},
+	})
+	require.NoError(t, err)
+	require.True(t, result.OK)
+	require.True(t, machine.Called("printer.emergency_stop"))
+	require.Empty(t, machine.Scripts())
+}
+
+func TestAForcedWordOtherThanM112IsRefusedAndNothingIsSent(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbForceGCode, Args: map[string]string{"gcode": "G28"},
+	})
+	require.ErrorIs(t, err, connectorapi.GCodeNotAllowed.New(""))
+	require.False(t, machine.Called("printer.gcode.script"))
+	require.False(t, machine.Called("printer.emergency_stop"))
+}
+
+func TestAnEmergencyStopOfAnIdleMachineReadsError(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	result, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbForceGCode, Args: map[string]string{"gcode": "M112"},
+	})
+	require.NoError(t, err)
+	require.True(t, result.OK)
+	collect(t, session, map[string]string{"/state": `"ERROR"`})
+}
+
+func TestTheForceGcodeArgumentDeclaresM112AsTheOnlyValue(t *testing.T) {
+	t.Parallel()
+
+	caps, _ := connect(t, startMachine(t, moonrakersim.Options{})).Capabilities()
+
+	require.Equal(t, []string{"M112"}, caps[moonraker.ArgForceGCode].Supported)
+}

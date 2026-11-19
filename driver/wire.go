@@ -19,6 +19,7 @@ const (
 	methodPrintStart       = "printer.print.start"
 	methodPrinterRestart   = "printer.restart"
 	methodFirmwareRestart  = "printer.firmware_restart"
+	methodEmergencyStop    = "printer.emergency_stop"
 )
 
 // notifyStatusUpdate is the notification a subscription arrives as. Its params

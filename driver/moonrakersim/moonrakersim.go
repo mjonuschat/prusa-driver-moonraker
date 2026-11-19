@@ -54,6 +54,7 @@ const (
 	methodPrintStart       = "printer.print.start"
 	methodPrinterRestart   = "printer.restart"
 	methodFirmwareRestart  = "printer.firmware_restart"
+	methodEmergencyStop    = "printer.emergency_stop"
 )
 
 // notifyStatusUpdate is the notification a subscription arrives as.
@@ -392,6 +393,12 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 		})
 	case methodGcodeScript:
 		h.recordScript(params)
+
+		return resultFrame(id, "ok")
+	case methodEmergencyStop:
+		h.Push(map[string]map[string]any{
+			"webhooks": {"state": "shutdown", "state_message": "Shutdown due to M112 command"},
+		})
 
 		return resultFrame(id, "ok")
 	case methodPrintStart:

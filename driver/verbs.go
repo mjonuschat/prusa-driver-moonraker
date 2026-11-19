@@ -43,6 +43,14 @@ const (
 	VerbResetPrinter = connectorapi.Capability("core.command.reset_printer")
 	// VerbReset restarts the host software and the machine's firmware.
 	VerbReset = connectorapi.Capability("core.command.reset")
+	// VerbSendGCode runs one line of gcode.
+	VerbSendGCode = connectorapi.Capability("core.command.send_gcode")
+	// ArgGCode is the line to run.
+	ArgGCode = connectorapi.Capability("core.command.send_gcode#gcode")
+	// VerbForceGCode is the out-of-band command. Here it is an emergency stop.
+	VerbForceGCode = connectorapi.Capability("core.command.force_gcode")
+	// ArgForceGCode is the forced word, which can only be M112.
+	ArgForceGCode = connectorapi.Capability("core.command.force_gcode#gcode")
 )
 
 // The highest target this driver's code will ever pass on, in degrees celsius.
@@ -120,6 +128,7 @@ func probe(
 	}
 
 	carry(claimed, resolved, VerbResetPrinter, VerbReset)
+	carry(claimed, resolved, VerbSendGCode, ArgGCode, VerbForceGCode, ArgForceGCode)
 
 	if slices.Contains(available, objectExtruder) {
 		carryHeater(claimed, resolved, VerbNozzleTarget, ArgNozzleTarget, heaters[heaterExtruder])
@@ -212,6 +221,24 @@ func heaterBounds(dumped configDump) map[string]heaterConfig {
 
 	return out
 }
+
+// gcodeArgument is the descriptor of a raw gcode line.
+func gcodeArgument() connectorapi.Value {
+	return connectorapi.Value{
+		Flag: true, Kind: connectorapi.KindString, Required: true, Limit: maxRawGCode, HasLimit: true,
+	}
+}
+
+// forceGCodeArgument is gcodeArgument narrowed to the one word the force verb
+// carries.
+func forceGCodeArgument() connectorapi.Value {
+	value := gcodeArgument()
+	value.Supported = []string{emergencyWord}
+
+	return value
+}
+
+const gcodeArgName = "gcode"
 
 // methodFor is the JSON-RPC call one verb becomes, and ok is false for a verb
 // this dialect sends as gcode instead.
