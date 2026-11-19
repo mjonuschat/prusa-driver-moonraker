@@ -1,7 +1,10 @@
-.PHONY: test build sim update-core
+.PHONY: test lint build sim update-core
 
 test:
 	go test ./...
+
+lint:
+	golangci-lint run ./...
 
 build:
 	cd prusa-connect && $(MAKE) compose-build BUILD_FILE=../build.yaml

@@ -1,0 +1,16 @@
+version: "2"
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        sdk-only:
+          files:
+            - $all
+          list-mode: lax
+          deny:
+            - pkg: github.com/prusa3d/prusa-connect
+              desc: build against github.com/prusa3d/prusa-connect/sdk only
+          allow:
+            - github.com/prusa3d/prusa-connect/sdk
