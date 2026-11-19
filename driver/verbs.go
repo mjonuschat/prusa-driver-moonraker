@@ -36,8 +36,8 @@ const (
 	ArgBedTarget = connectorapi.Capability("core.command.set_bed_temperature#bed_temperature")
 	// VerbStartPrint starts printing a file the machine already holds.
 	VerbStartPrint = connectorapi.Capability("core.command.start_print")
-	// ArgStartPath is the file to print, as the machine's virtual SD card names
-	// it. It is passed on unchanged.
+	// ArgStartPath is the file to print, as the storage-prefixed path List
+	// returns, such as gcodes/models/part.gcode.
 	ArgStartPath = connectorapi.Capability("core.command.start_print#path")
 	// VerbResetPrinter restarts the Klipper host software.
 	VerbResetPrinter = connectorapi.Capability("core.command.reset_printer")

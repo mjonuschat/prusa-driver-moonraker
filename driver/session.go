@@ -373,7 +373,16 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 	}
 
 	if cmd.Verb == VerbStartPrint {
-		return methodPrintStart, map[string]any{"filename": cmd.Args["path"]}, nil
+		relative, err := gcodesPath(cmd.Args["path"])
+		if err != nil {
+			return "", nil, err
+		}
+
+		if relative == "" {
+			return "", nil, connectorapi.PathNotAllowed.New("the gcodes root is not a file")
+		}
+
+		return methodPrintStart, map[string]any{"filename": relative}, nil
 	}
 
 	switch cmd.Verb {

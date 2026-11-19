@@ -598,11 +598,13 @@ func TestAnEmergencyShutdownOfAnIdleMachineReachesTheStateTree(t *testing.T) {
 	collect(t, session, map[string]string{"/state": `"IDLE"`})
 }
 
-// A path is the machine's own to read, so the driver passes it on as given.
-func TestStartingAPrintSendsTheFilenameUnchanged(t *testing.T) {
+// The storage prefix is the driver's. What follows it is the machine's own to
+// read, so it is passed on as given.
+func TestStartingAPrintSendsTheFilenameWithoutTheStoragePrefix(t *testing.T) {
 	t.Parallel()
 
-	paths := []string{"bracket.gcode", "/bracket.gcode", "parts/bracket.gcode", `my "part".gcode`}
+	paths := []string{"gcodes/bracket.gcode", "gcodes/parts/bracket.gcode", `gcodes/my "part".gcode`}
+	want := []string{"bracket.gcode", "parts/bracket.gcode", `my "part".gcode`}
 
 	machine := startMachine(t, moonrakersim.Options{})
 	session := connect(t, machine)
@@ -615,7 +617,7 @@ func TestStartingAPrintSendsTheFilenameUnchanged(t *testing.T) {
 		require.True(t, result.OK, "%q was not accepted", path)
 	}
 
-	require.Equal(t, paths, machine.Filenames())
+	require.Equal(t, want, machine.Filenames())
 }
 
 func TestAMachineWithNoVirtualSDCardIsNotOfferedStartPrint(t *testing.T) {
@@ -704,7 +706,7 @@ func TestStartingAPrintInAStateThatRefusesItSendsNothing(t *testing.T) {
 	collect(t, session, map[string]string{"/state": `"PRINTING"`})
 
 	_, err := session.Do(t.Context(), connectorapi.Command{
-		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "gcodes/a.gcode"},
 	})
 	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
 	require.Empty(t, machine.Filenames())
@@ -723,7 +725,7 @@ func TestAnEmergencyStopOfAnIdleMachineRefusesAStartAndAScript(t *testing.T) {
 	collect(t, session, map[string]string{"/state": `"ERROR"`})
 
 	_, err = session.Do(t.Context(), connectorapi.Command{
-		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "gcodes/a.gcode"},
 	})
 	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
 
@@ -746,7 +748,7 @@ func TestAFreshSessionAcceptsEveryVerb(t *testing.T) {
 	session := connect(t, machine)
 
 	_, err := session.Do(t.Context(), connectorapi.Command{
-		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "gcodes/a.gcode"},
 	})
 	require.False(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()))
 }
