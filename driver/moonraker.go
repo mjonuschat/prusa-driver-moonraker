@@ -5,7 +5,8 @@
 //
 // The driver ships no profiles. What the machine lists under
 // printer.objects.list narrows the baseline: a machine with no pause_resume
-// section is not offered pause. The heater bounds are the machine's own.
+// section is not offered pause, and one with no virtual_sdcard is not offered
+// printing. The heater bounds are the machine's own.
 //
 // Klipper reports no vendor, model or serial. The endpoint options give them:
 //
