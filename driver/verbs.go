@@ -34,6 +34,15 @@ const (
 	VerbBedTarget = connectorapi.Capability("core.command.set_bed_temperature")
 	// ArgBedTarget is the bed target, in whole degrees celsius.
 	ArgBedTarget = connectorapi.Capability("core.command.set_bed_temperature#bed_temperature")
+	// VerbStartPrint starts printing a file the machine already holds.
+	VerbStartPrint = connectorapi.Capability("core.command.start_print")
+	// ArgStartPath is the file to print, as the machine's virtual SD card names
+	// it. It is passed on unchanged.
+	ArgStartPath = connectorapi.Capability("core.command.start_print#path")
+	// VerbResetPrinter restarts the Klipper host software.
+	VerbResetPrinter = connectorapi.Capability("core.command.reset_printer")
+	// VerbReset restarts the host software and the machine's firmware.
+	VerbReset = connectorapi.Capability("core.command.reset")
 )
 
 // The highest target this driver's code will ever pass on, in degrees celsius.
@@ -104,6 +113,13 @@ func probe(
 	if slices.Contains(available, objectPauseResume) {
 		carry(claimed, resolved, VerbPausePrint, VerbResumePrint, VerbStopPrint)
 	}
+
+	// Klipper's virtual_sdcard section is what printer.print.start loads from.
+	if slices.Contains(available, objectVirtualSDCard) {
+		carry(claimed, resolved, VerbStartPrint, ArgStartPath)
+	}
+
+	carry(claimed, resolved, VerbResetPrinter, VerbReset)
 
 	if slices.Contains(available, objectExtruder) {
 		carryHeater(claimed, resolved, VerbNozzleTarget, ArgNozzleTarget, heaters[heaterExtruder])
@@ -207,10 +223,25 @@ func methodFor(verb connectorapi.Capability) (method string, ok bool) {
 		return methodPrintResume, true
 	case VerbStopPrint:
 		return methodPrintCancel, true
+	case VerbStartPrint:
+		return methodPrintStart, true
+	case VerbResetPrinter:
+		return methodPrinterRestart, true
+	case VerbReset:
+		return methodFirmwareRestart, true
 	default:
 		return "", false
 	}
 }
+
+// restarts reports whether the verb restarts Klipper, which ends the
+// connection the call was made on.
+func restarts(verb connectorapi.Capability) bool {
+	return verb == VerbResetPrinter || verb == VerbReset
+}
+
+// klippyDisconnected is what Moonraker answers when Klipper is already down.
+const klippyDisconnected = "Klippy Disconnected"
 
 // gcodeFor is the gcode line one command becomes, for the verbs Moonraker has
 // no call of its own for.

@@ -305,7 +305,16 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 
 	result, refusal, err := s.call(ctx, method, params)
 	if err != nil {
+		// Klipper restarts by hanging up, so the lost connection is the answer.
+		if restarts(cmd.Verb) && errors.Is(err, ErrSessionEnded) {
+			return connectorapi.Result{OK: true}, nil
+		}
+
 		return connectorapi.Result{}, err
+	}
+
+	if refusal != nil && restarts(cmd.Verb) && refusal.Message == klippyDisconnected {
+		return connectorapi.Result{OK: true}, nil
 	}
 
 	if refusal != nil {
@@ -320,6 +329,10 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, err error) {
 	if cmd.Verb == VerbSendStateInfo {
 		return methodObjectsQuery, objectsParam(s.asked), nil
+	}
+
+	if cmd.Verb == VerbStartPrint {
+		return methodPrintStart, map[string]any{"filename": cmd.Args["path"]}, nil
 	}
 
 	if named, ok := methodFor(cmd.Verb); ok {

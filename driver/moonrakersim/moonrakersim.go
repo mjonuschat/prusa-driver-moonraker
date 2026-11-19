@@ -51,6 +51,9 @@ const (
 	methodPrintResume      = "printer.print.resume"
 	methodPrintCancel      = "printer.print.cancel"
 	methodGcodeScript      = "printer.gcode.script"
+	methodPrintStart       = "printer.print.start"
+	methodPrinterRestart   = "printer.restart"
+	methodFirmwareRestart  = "printer.firmware_restart"
 )
 
 // notifyStatusUpdate is the notification a subscription arrives as.
@@ -159,6 +162,7 @@ type Host struct {
 	conns     []*link
 	calls     []string
 	scripts   []string
+	filenames []string
 	eventTime float64
 }
 
@@ -351,6 +355,10 @@ func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
 
 		h.record(request.Method)
 
+		if h.restarts(request.Method) {
+			return
+		}
+
 		if err = open.write(h.answer(*request.ID, request.Method, request.Params)); err != nil {
 			return
 		}
@@ -386,11 +394,62 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 		h.recordScript(params)
 
 		return resultFrame(id, "ok")
+	case methodPrintStart:
+		h.recordFilename(params)
+
+		return resultFrame(id, "ok")
 	case methodPrintPause, methodPrintResume, methodPrintCancel:
 		return resultFrame(id, "ok")
 	default:
 		return errorFrame(id, methodNotFound, "Method "+method+" is not available")
 	}
+}
+
+// Filenames is every filename a printer.print.start carried, in order.
+func (h *Host) Filenames() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return slices.Clone(h.filenames)
+}
+
+func (h *Host) recordFilename(params json.RawMessage) {
+	var sent struct {
+		Filename string `json:"filename"`
+	}
+
+	if len(params) == 0 || json.Unmarshal(params, &sent) != nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.filenames = append(h.filenames, sent.Filename)
+}
+
+// restarts reports whether the call restarts Klipper and is not refused. Such a
+// call is never answered. The connection closes and the held webhooks state
+// returns to ready, as it does when the machine comes back.
+func (h *Host) restarts(method string) bool {
+	if method != methodPrinterRestart && method != methodFirmwareRestart {
+		return false
+	}
+
+	if _, refused := h.refusal(method); refused {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.status["webhooks"] == nil {
+		h.status["webhooks"] = map[string]any{}
+	}
+
+	h.status["webhooks"]["state"] = "ready"
+
+	return true
 }
 
 // recordScript keeps the gcode line one call carried, so a case can read the

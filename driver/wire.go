@@ -16,6 +16,9 @@ const (
 	methodPrintResume      = "printer.print.resume"
 	methodPrintCancel      = "printer.print.cancel"
 	methodGcodeScript      = "printer.gcode.script"
+	methodPrintStart       = "printer.print.start"
+	methodPrinterRestart   = "printer.restart"
+	methodFirmwareRestart  = "printer.firmware_restart"
 )
 
 // notifyStatusUpdate is the notification a subscription arrives as. Its params
@@ -35,6 +38,7 @@ const (
 	objectPauseResume   = "pause_resume"
 	objectConfigFile    = "configfile"
 	objectWebhooks      = "webhooks"
+	objectVirtualSDCard = "virtual_sdcard"
 )
 
 // subscribed is every object whose readings become state patches, in the order

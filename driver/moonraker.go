@@ -227,6 +227,10 @@ func (d *Driver) Baseline() connectorapi.Set {
 		ArgNozzleTool:     toolArgumentValue(),
 		VerbBedTarget:     {Flag: true},
 		ArgBedTarget:      temperatureArgument(bedCeiling),
+		VerbStartPrint:    {Flag: true},
+		ArgStartPath:      {Flag: true, Kind: connectorapi.KindString, Required: true},
+		VerbResetPrinter:  {Flag: true},
+		VerbReset:         {Flag: true},
 	}
 }
 

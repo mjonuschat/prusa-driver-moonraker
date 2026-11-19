@@ -577,3 +577,34 @@ func TestAnEmergencyShutdownOfAnIdleMachineReachesTheStateTree(t *testing.T) {
 	machine.Push(map[string]map[string]any{"webhooks": {"state": "ready"}})
 	collect(t, session, map[string]string{"/state": `"IDLE"`})
 }
+
+// A path is the machine's own to read, so the driver passes it on as given.
+func TestStartingAPrintSendsTheFilenameUnchanged(t *testing.T) {
+	t.Parallel()
+
+	paths := []string{"bracket.gcode", "/bracket.gcode", "parts/bracket.gcode", `my "part".gcode`}
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	for _, path := range paths {
+		result, err := session.Do(t.Context(), connectorapi.Command{
+			Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": path},
+		})
+		require.NoError(t, err)
+		require.True(t, result.OK, "%q was not accepted", path)
+	}
+
+	require.Equal(t, paths, machine.Filenames())
+}
+
+func TestAMachineWithNoVirtualSDCardIsNotOfferedStartPrint(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{Objects: without(moonrakersim.DefaultObjects(), "virtual_sdcard")})
+
+	caps, _ := connect(t, machine).Capabilities()
+
+	require.False(t, caps.Has(moonraker.VerbStartPrint))
+	require.NotContains(t, caps, moonraker.ArgStartPath)
+}
