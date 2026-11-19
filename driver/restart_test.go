@@ -49,22 +49,15 @@ func TestARestartTheMachineRefusesIsNotSuccess(t *testing.T) {
 	require.Equal(t, "Internal error", result.MachineReason)
 }
 
-func TestAMachineAnsweringKlippyDisconnectedIsSuccessForARestart(t *testing.T) {
+func TestAMachineAnsweringKlippyDisconnectedIsNotSuccessForARestart(t *testing.T) {
 	t.Parallel()
 
 	machine := startMachine(t, moonrakersim.Options{Refused: map[string]string{
-		"printer.restart":     "Klippy Disconnected",
-		"printer.print.start": "Klippy Disconnected",
+		"printer.restart": "Klippy Disconnected",
 	}})
-	session := connect(t, machine)
 
-	result, err := session.Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbResetPrinter})
-	require.NoError(t, err)
-	require.True(t, result.OK)
-
-	result, err = session.Do(t.Context(), connectorapi.Command{
-		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
-	})
+	result, err := connect(t, machine).Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbResetPrinter})
 	require.NoError(t, err)
 	require.False(t, result.OK)
+	require.Equal(t, "Klippy Disconnected", result.MachineReason)
 }

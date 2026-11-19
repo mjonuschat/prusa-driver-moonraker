@@ -326,10 +326,6 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 		return connectorapi.Result{}, err
 	}
 
-	if refusal != nil && restarts(cmd.Verb) && refusal.Message == klippyDisconnected {
-		return connectorapi.Result{OK: true}, nil
-	}
-
 	if refusal != nil {
 		return connectorapi.Result{OK: false, MachineReason: refusal.Message}, nil
 	}

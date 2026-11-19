@@ -267,9 +267,6 @@ func restarts(verb connectorapi.Capability) bool {
 	return verb == VerbResetPrinter || verb == VerbReset
 }
 
-// klippyDisconnected is what Moonraker answers when Klipper is already down.
-const klippyDisconnected = "Klippy Disconnected"
-
 // gcodeFor is the gcode line one command becomes, for the verbs Moonraker has
 // no call of its own for.
 //
