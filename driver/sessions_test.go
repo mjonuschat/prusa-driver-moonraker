@@ -65,3 +65,80 @@ func TestOneDriverServesSeveralMachinesAtOnce(t *testing.T) {
 		require.Equal(t, fmt.Sprintf("bench-%d", i), sessions[i].Identity().Model)
 	}
 }
+
+// TestOneDriverSharesFileStateAcrossSessions runs the file verbs from several
+// sessions of one Driver at once, while the host reports file changes. It is
+// meant to be run under -race.
+func TestOneDriverSharesFileStateAcrossSessions(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sessionCount = 3
+		rounds       = 5
+	)
+
+	machine := startMachine(t, moonrakersim.Options{})
+	shared := moonraker.NewDriver(0)
+	sessions := make([]connectorapi.Session, sessionCount)
+
+	for i := range sessions {
+		session, err := shared.Connect(
+			t.Context(), connectorapi.Endpoint{Address: machine.Address()}, shared.Baseline())
+		require.NoError(t, err)
+
+		sessions[i] = session
+
+		t.Cleanup(func() {
+			if closeErr := session.Close(); closeErr != nil {
+				t.Errorf("close session: %v", closeErr)
+			}
+		})
+	}
+
+	var wg sync.WaitGroup
+
+	for i := range sessions {
+		files := filesOf(t, sessions[i])
+		manager := managerOf(t, sessions[i])
+
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for round := range rounds {
+				folder := fmt.Sprintf("gcodes/race-%d-%d", i, round)
+
+				if _, err := files.List(t.Context(), "gcodes"); err != nil {
+					t.Errorf("list: %v", err)
+				}
+
+				if _, err := files.Storages(t.Context()); err != nil {
+					t.Errorf("storages: %v", err)
+				}
+
+				if err := manager.CreateFolder(t.Context(), folder); err != nil {
+					t.Errorf("create %s: %v", folder, err)
+
+					continue
+				}
+
+				if err := manager.DeleteFolder(t.Context(), folder); err != nil {
+					t.Errorf("delete %s: %v", folder, err)
+				}
+			}
+		}()
+	}
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for round := range rounds * sessionCount {
+			machine.NotifyFiles(created("gcodes", fmt.Sprintf("note-%d.gcode", round)))
+		}
+	}()
+
+	wg.Wait()
+}

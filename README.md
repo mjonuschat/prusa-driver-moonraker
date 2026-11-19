@@ -14,6 +14,7 @@ A Prusa Connect printer driver for Klipper machines behind Moonraker.
 - Listing includes a preview of each file.
 - Folders can be created.
 - Files and folders can be deleted.
+- Changes made in Mainsail or Fluidd appear as file changes.
 - Upload is not supported yet.
 
 A Moonraker that requires authentication is not supported yet. Connecting to one fails with `moonraker: authorization required`.
