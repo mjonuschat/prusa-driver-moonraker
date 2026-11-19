@@ -18,6 +18,7 @@ type storageLister interface {
 var fileVerbs = []connectorapi.Capability{
 	connectorapi.VerbSendInfo, connectorapi.VerbSendFileInfo,
 	connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
+	connectorapi.VerbFileUpload,
 }
 
 func storagesOf(t *testing.T, session connectorapi.Session) []connectorapi.Storage {
@@ -60,6 +61,7 @@ func TestAReadOnlyGcodesRootIsOfferedListingButNotChanges(t *testing.T) {
 	require.False(t, offered(t, session, connectorapi.VerbCreateFolder))
 	require.False(t, offered(t, session, connectorapi.VerbDeleteFile))
 	require.False(t, offered(t, session, connectorapi.VerbDeleteFolder))
+	require.False(t, offered(t, session, connectorapi.VerbFileUpload))
 	require.True(t, storagesOf(t, session)[0].ReadOnly)
 }
 

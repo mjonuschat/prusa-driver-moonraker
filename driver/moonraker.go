@@ -245,6 +245,7 @@ func (d *Driver) Baseline() connectorapi.Set {
 		connectorapi.VerbCreateFolder: {Flag: true},
 		connectorapi.VerbDeleteFile:   {Flag: true},
 		connectorapi.VerbDeleteFolder: {Flag: true},
+		connectorapi.VerbFileUpload:   {Flag: true},
 	}
 }
 

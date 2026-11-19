@@ -135,7 +135,8 @@ func probe(
 
 	if gcodes.present && gcodes.writable {
 		carry(claimed, resolved,
-			connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder)
+			connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
+			connectorapi.VerbFileUpload)
 	}
 
 	carry(claimed, resolved, VerbResetPrinter, VerbReset)

@@ -36,6 +36,7 @@ func states() connectorapi.StateSet {
 	files := []connectorapi.Capability{
 		connectorapi.VerbSendInfo, connectorapi.VerbSendFileInfo,
 		connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
+		connectorapi.VerbFileUpload,
 	}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)

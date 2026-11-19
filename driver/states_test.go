@@ -70,6 +70,7 @@ func TestEveryNewVerbIsAcceptedInTheRightStates(t *testing.T) {
 		{connectorapi.VerbCreateFolder, all},
 		{connectorapi.VerbDeleteFile, all},
 		{connectorapi.VerbDeleteFolder, all},
+		{connectorapi.VerbFileUpload, all},
 	}
 
 	for _, tc := range cases {

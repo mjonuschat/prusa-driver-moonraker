@@ -45,7 +45,7 @@ func upload(t *testing.T, r *rig, root, dir, name string, size int) (int, string
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	text, _ := io.ReadAll(resp.Body)
 
