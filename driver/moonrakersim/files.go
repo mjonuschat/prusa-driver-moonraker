@@ -3,7 +3,9 @@ package moonrakersim
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"path"
@@ -66,6 +68,13 @@ func (h *Host) initFiles(opts Options) {
 	h.noGcodes = opts.NoGcodesRoot
 	h.readOnly = opts.ReadOnlyGcodes
 	h.free = opts.FreeSpace
+	h.uploadDropAfter = opts.UploadDropAfter
+	h.uploadStoresSize = opts.UploadStoresSize
+
+	if opts.UploadRefusal != nil {
+		refusal := *opts.UploadRefusal
+		h.uploadRefusal = &refusal
+	}
 
 	if h.free == 0 {
 		h.free = defaultFreeSpace
@@ -376,3 +385,172 @@ type refusal string
 func (e refusal) Error() string { return string(e) }
 
 func refuse(format string, args ...any) error { return refusal(fmt.Sprintf(format, args...)) }
+
+type UploadRefusal struct {
+	Status int
+	Body   string
+}
+
+// Upload is one upload that finished. Path is the path form field, Name the
+// file part's filename and Size the bytes the file part carried.
+type Upload struct {
+	Root, Path, Name string
+	Size             int64
+}
+
+func (h *Host) ClearUploadRefusal() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.uploadRefusal = nil
+}
+
+func (h *Host) Uploads() []Upload {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return slices.Clone(h.uploads)
+}
+
+func writeMoonrakerError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "message": message}})
+}
+
+// serveUpload takes POST /server/files/upload. It reads the multipart body as a
+// stream and keeps only the size of the file part.
+func (h *Host) serveUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMoonrakerError(w, http.StatusMethodNotAllowed, "Method not allowed")
+
+		return
+	}
+
+	h.mu.Lock()
+	refusal := h.uploadRefusal
+	noGcodes, readOnly := h.noGcodes, h.readOnly
+	dropAfter, storesSize := h.uploadDropAfter, h.uploadStoresSize
+	h.mu.Unlock()
+
+	if refusal != nil {
+		// Full duplex lets the answer go out while the request body is unread.
+		if err := http.NewResponseController(w).EnableFullDuplex(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
+		}
+
+		w.WriteHeader(refusal.Status)
+		_, _ = io.WriteString(w, refusal.Body)
+
+		_ = http.NewResponseController(w).Flush()
+
+		return
+	}
+
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeMoonrakerError(w, http.StatusBadRequest, "Invalid multipart request")
+
+		return
+	}
+
+	fields := map[string]string{}
+
+	var (
+		name string
+		size int64
+		seen bool
+	)
+
+	for !seen {
+		part, err := reader.NextPart()
+		if err != nil {
+			writeMoonrakerError(w, http.StatusBadRequest, "No file in the upload")
+
+			return
+		}
+
+		if part.FormName() != "file" {
+			value, _ := io.ReadAll(io.LimitReader(part, 4096))
+			fields[part.FormName()] = string(value)
+
+			continue
+		}
+
+		seen = true
+		name = part.FileName()
+
+		root := fields["root"]
+		if root == "" {
+			root = gcodesRoot
+		}
+
+		if root != gcodesRoot || noGcodes {
+			writeMoonrakerError(w, http.StatusBadRequest, "Invalid root path ("+root+")")
+
+			return
+		}
+
+		if readOnly {
+			writeMoonrakerError(w, http.StatusForbidden, "Gcodes root is read-only")
+
+			return
+		}
+
+		buf := make([]byte, 32*1024)
+
+		for {
+			n, readErr := part.Read(buf)
+			size += int64(n)
+
+			if dropAfter > 0 && size >= dropAfter {
+				if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+					_ = conn.Close()
+				}
+
+				return
+			}
+
+			if readErr != nil {
+				break
+			}
+		}
+	}
+
+	if name == "" {
+		writeMoonrakerError(w, http.StatusBadRequest, "No file name in the upload")
+
+		return
+	}
+
+	dir := strings.Trim(path.Clean("/"+fields["path"]), "/")
+	rel := path.Join(dir, name)
+
+	stored := size
+	if storesSize > 0 {
+		stored = storesSize
+	}
+
+	h.mu.Lock()
+	for parent := dir; parent != ""; parent = path.Dir(parent) {
+		key := gcodesRoot + "/" + parent
+		if _, exists := h.tree[key]; !exists {
+			h.tree[key] = entry{dir: true, modified: newDirectoryModified}
+		}
+
+		if path.Dir(parent) == "." {
+			break
+		}
+	}
+
+	h.tree[gcodesRoot+"/"+rel] = entry{size: stored, modified: newDirectoryModified}
+	h.uploads = append(h.uploads, Upload{Root: gcodesRoot, Path: dir, Name: name, Size: size})
+	h.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"item":   map[string]any{"root": gcodesRoot, "path": rel},
+		"action": "create_file",
+	})
+}

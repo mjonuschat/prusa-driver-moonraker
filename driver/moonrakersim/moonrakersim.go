@@ -119,6 +119,16 @@ type Options struct {
 	Thumbnails []Thumbnail
 	// NoThumbnails makes metadata report an empty list. It wins over Thumbnails.
 	NoThumbnails bool
+
+	// UploadRefusal answers every upload with the given status and body, before
+	// the request body is read. ClearUploadRefusal stops it.
+	UploadRefusal *UploadRefusal
+	// UploadDropAfter closes the connection after this many file bytes and
+	// stores nothing. Zero is off.
+	UploadDropAfter int64
+	// UploadStoresSize is the size an upload is listed with, whatever arrived.
+	// Zero is off.
+	UploadStoresSize int64
 }
 
 // DefaultObjects is a complete Klipper machine: it can pause, it has a hotend
@@ -184,6 +194,11 @@ type Host struct {
 	noGcodes   bool
 	readOnly   bool
 	thumbnails []Thumbnail
+
+	uploadRefusal    *UploadRefusal
+	uploadDropAfter  int64
+	uploadStoresSize int64
+	uploads          []Upload
 }
 
 // link is one open connection and the lock that keeps two writers off it. A
@@ -240,6 +255,7 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(websocketPath, host.serve)
+	mux.HandleFunc("/server/files/upload", host.serveUpload)
 	mux.HandleFunc("/server/files/", host.serveThumbnail)
 
 	host.server = &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
