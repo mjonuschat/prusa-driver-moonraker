@@ -2,11 +2,13 @@ package moonraker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"path"
+	"strconv"
 	"sync"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
@@ -37,7 +39,11 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 	}
 
 	if !s.sending.CompareAndSwap(false, true) {
-		return connectorapi.ErrTransferBusy
+		busy := connectorapi.TransferBusy.
+			New("a transfer is already running").
+			With(fault.StringParam("path", up.Path))
+
+		return fmt.Errorf("%w: %w", connectorapi.ErrTransferBusy, busy)
 	}
 	defer s.sending.Store(false)
 
@@ -86,7 +92,7 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 
 	request, err := http.NewRequestWithContext(runCtx, http.MethodPost, target, pipeReader)
 	if err != nil {
-		return fmt.Errorf("%w: %w", connectorapi.ErrTransferFailed, redactCause(err, target, target))
+		return transferFailed(up.Path, redactCause(err, target, target))
 	}
 
 	request.Header.Set("Content-Type", form.FormDataContentType())
@@ -95,14 +101,26 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 
 	response, err := s.upload.Do(request)
 	if err != nil {
-		return fmt.Errorf("%w: %w", connectorapi.ErrTransferFailed, redactCause(err, target, target))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		return transferFailed(up.Path, redactCause(err, target, target))
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<16))
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<16))
 	_ = response.Body.Close()
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if response.StatusCode >= 400 && response.StatusCode < 500 {
+		return transferRefused(up.Path, response.StatusCode, body)
+	}
+
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return fmt.Errorf("%w: the upload answered %d", connectorapi.ErrTransferFailed, response.StatusCode)
+		return transferFailed(up.Path, fmt.Errorf("the upload answered %d", response.StatusCode))
 	}
 
 	// The writer has finished once the machine has read the whole body, but
@@ -118,8 +136,12 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 		listed += "/" + folder
 	}
 
-	_, refusal, listErr := s.directory(ctx, listed)
+	reply, refusal, listErr := s.directory(ctx, listed)
 	if listErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		return listErr
 	}
 
@@ -127,11 +149,77 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 		return fmt.Errorf("%w: %s: %s", ErrRefused, methodGetDirectory, refusal.Message)
 	}
 
-	return nil
+	return checkStored(up.Path, path.Base(relative), up.Content.Size(), reply)
 }
 
-// writeForm writes the multipart body: root, path when the folder is not the
-// root, then the file, last.
+func checkStored(asked, name string, size int64, reply *directoryReply) error {
+	found := "absent"
+
+	for _, dir := range reply.Dirs {
+		if dir.Dirname == name {
+			found = "folder"
+		}
+	}
+
+	for _, file := range reply.Files {
+		if file.Filename == name {
+			if file.Size == size {
+				return nil
+			}
+
+			found = strconv.FormatInt(file.Size, 10)
+		}
+	}
+
+	return connectorapi.TransferNotOnStorage.
+		New("the printer finished the upload and the file is not on its storage as sent").
+		With(
+			fault.StringParam("path", asked),
+			fault.IntParam("expected_size", size),
+			fault.StringParam("found", found),
+		)
+}
+
+func transferFailed(asked string, cause error) error {
+	failed := connectorapi.TransferFailed.
+		New("the upload did not finish").
+		With(fault.StringParam("path", asked), fault.StringParam("machine_reason", cause.Error()))
+
+	return fmt.Errorf("%w: %w", connectorapi.ErrTransferFailed, failed)
+}
+
+// transferRefused takes the reason from Moonraker's {"error":{"message":...}}
+// body, or from the status text when the body has none.
+func transferRefused(asked string, status int, body []byte) error {
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	var reason string
+
+	if json.Unmarshal(body, &parsed) == nil {
+		reason = parsed.Error.Message
+	}
+
+	if reason == "" {
+		reason = http.StatusText(status)
+	}
+
+	refused := connectorapi.TransferRefused.
+		New("the printer refused the upload").
+		With(
+			fault.StringParam("path", asked),
+			fault.StringParam("machine_reason", reason),
+			fault.StringParam("reason", reason),
+		)
+
+	return fmt.Errorf("%w: %w", connectorapi.ErrTransferRefused, refused)
+}
+
+// writeForm writes the multipart body in this order: root, path when the
+// folder is not the root, then the file.
 func writeForm(
 	ctx context.Context, form *multipart.Writer, source connectorapi.Content,
 	held *heldReader, reports *reporter, folder, name string,

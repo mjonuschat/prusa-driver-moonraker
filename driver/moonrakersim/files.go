@@ -511,8 +511,13 @@ func (h *Host) serveUpload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
 				break
+			}
+
+			if readErr != nil {
+				// A truncated body is not an upload.
+				return
 			}
 		}
 	}

@@ -2,7 +2,9 @@ package moonraker_test
 
 import (
 	"context"
+	"errors"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -76,3 +78,104 @@ func transfersOf(t *testing.T, s connectorapi.Session) connectorapi.Transfers {
 type progressLog struct{ reports []connectorapi.Progress }
 
 func (p *progressLog) add(report connectorapi.Progress) { p.reports = append(p.reports, report) }
+
+type failingReader struct {
+	left int
+	err  error
+}
+
+func (f *failingReader) Read(p []byte) (int, error) {
+	if f.left == 0 {
+		return 0, f.err
+	}
+
+	n := min(len(p), f.left)
+	clear(p[:n])
+	f.left -= n
+
+	return n, nil
+}
+
+type failingContent struct{ openFails bool }
+
+func (failingContent) Size() int64 { return 1000 }
+
+func (f failingContent) Open(context.Context, int64) (io.ReadCloser, error) {
+	if f.openFails {
+		return nil, errors.New("cannot open")
+	}
+
+	return readCloser{Reader: &failingReader{left: 100, err: errors.New("disk gone")}}, nil
+}
+
+type gatedContent struct {
+	released chan struct{}
+	closed   chan struct{}
+	once     sync.Once
+	reading  chan struct{}
+}
+
+func newGatedContent() *gatedContent {
+	return &gatedContent{
+		released: make(chan struct{}), closed: make(chan struct{}), reading: make(chan struct{}),
+	}
+}
+
+func (g *gatedContent) Size() int64 { return 200 }
+
+func (g *gatedContent) Open(context.Context, int64) (io.ReadCloser, error) {
+	return &gatedReader{g: g}, nil
+}
+
+type gatedReader struct {
+	g    *gatedContent
+	sent int
+}
+
+func (r *gatedReader) Read(p []byte) (int, error) {
+	if r.sent < 100 {
+		n := min(len(p), 100-r.sent)
+		clear(p[:n])
+		r.sent += n
+
+		return n, nil
+	}
+
+	r.g.once.Do(func() { close(r.g.reading) })
+
+	select {
+	case <-r.g.released:
+	case <-r.g.closed:
+		return 0, io.ErrClosedPipe
+	}
+
+	if r.sent >= 200 {
+		return 0, io.EOF
+	}
+
+	n := min(len(p), 200-r.sent)
+	clear(p[:n])
+	r.sent += n
+
+	return n, nil
+}
+
+func (r *gatedReader) Close() error {
+	select {
+	case <-r.g.closed:
+	default:
+		close(r.g.closed)
+	}
+
+	return nil
+}
+
+type blockedOpenContent struct{}
+
+func (blockedOpenContent) Size() int64 { return 10 }
+
+func (blockedOpenContent) Open(ctx context.Context, _ int64) (io.ReadCloser, error) {
+	<-ctx.Done()
+
+	return nil, ctx.Err()
+}

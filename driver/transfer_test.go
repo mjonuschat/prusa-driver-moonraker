@@ -1,8 +1,11 @@
 package moonraker_test
 
 import (
+	"context"
+	"errors"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -157,7 +160,7 @@ func TestAPathOutsideGcodesSendsNothing(t *testing.T) {
 // Not parallel, because it reads process-wide allocation counters. Go runs it
 // before the parallel tests resume.
 //
-//nolint:paralleltest // see above
+//nolint:paralleltest // reads process-wide allocation counters
 func TestAFileIsStreamedNotBuffered(t *testing.T) {
 	session := connect(t, startMachine(t, moonrakersim.Options{}))
 
@@ -183,4 +186,219 @@ func TestAReadOnlyRootIsNotOfferedUpload(t *testing.T) {
 		Path: "gcodes/x.gcode", Content: bytesContent("x"),
 	})
 	require.True(t, fault.HasCode(err, connectorapi.CapabilityNotSupported.Code()), "%v", err)
+}
+
+func faultOf(t *testing.T, err error) *fault.Fault {
+	t.Helper()
+
+	var f *fault.Fault
+
+	require.True(t, errors.As(err, &f))
+
+	return f
+}
+
+func param(t *testing.T, f *fault.Fault, key string) string {
+	t.Helper()
+
+	value, ok := f.Params().Get(key)
+	require.True(t, ok, key)
+
+	return value.String()
+}
+
+func TestARefusalIsTransferRefusedWithMoonrakersMessage(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{UploadRefusal: &moonrakersim.UploadRefusal{
+		Status: 403, Body: `{"error":{"code":403,"message":"File is loaded"}}`,
+	}})
+	session := connect(t, machine)
+
+	err := transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/a.gcode", Content: bytesContent("G28\n"),
+	})
+	require.ErrorIs(t, err, connectorapi.ErrTransferRefused)
+	require.Equal(t, "File is loaded", param(t, faultOf(t, err), "machine_reason"))
+	require.Empty(t, machine.Uploads())
+}
+
+func TestARefusalWithoutAJSONBodyUsesTheStatusText(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range []string{"", "<html>no</html>"} {
+		session := connect(t, startMachine(t, moonrakersim.Options{
+			UploadRefusal: &moonrakersim.UploadRefusal{Status: 403, Body: body},
+		}))
+
+		err := transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+			Path: "gcodes/a.gcode", Content: bytesContent("G28\n"),
+		})
+		require.ErrorIs(t, err, connectorapi.ErrTransferRefused)
+		require.Equal(t, "Forbidden", param(t, faultOf(t, err), "machine_reason"))
+	}
+}
+
+func TestAServerErrorIsTransferFailed(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{
+		UploadRefusal: &moonrakersim.UploadRefusal{Status: 500, Body: "boom"},
+	}))
+
+	err := transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/a.gcode", Content: bytesContent("G28\n"),
+	})
+	require.ErrorIs(t, err, connectorapi.ErrTransferFailed)
+}
+
+func TestARedirectIsTransferFailed(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{
+		UploadRefusal: &moonrakersim.UploadRefusal{Status: 302, Body: ""},
+	}))
+
+	err := transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/a.gcode", Content: bytesContent("G28\n"),
+	})
+	require.ErrorIs(t, err, connectorapi.ErrTransferFailed)
+}
+
+func TestADroppedConnectionIsTransferFailed(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{UploadDropAfter: 4}))
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+			Path: "gcodes/a.gcode", Content: generatedContent(4 * mebibyte),
+		})
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, connectorapi.ErrTransferFailed)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send did not return")
+	}
+}
+
+func TestAFailingContentIsTransferFailed(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{}))
+	transfers := transfersOf(t, session)
+
+	for _, content := range []failingContent{{}, {openFails: true}} {
+		err := transfers.Send(t.Context(), connectorapi.Upload{Path: "gcodes/a.gcode", Content: content})
+		require.ErrorIs(t, err, connectorapi.ErrTransferFailed)
+	}
+
+	require.NoError(t, transfers.Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/b.gcode", Content: bytesContent("G28\n"),
+	}))
+}
+
+func TestAShortFileOnTheStorageIsNotOnStorage(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{UploadStoresSize: 3}))
+
+	err := transfersOf(t, session).Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/a.gcode", Content: bytesContent("0123456789"),
+	})
+	require.True(t, fault.HasCode(err, connectorapi.TransferNotOnStorage.Code()))
+
+	failure := faultOf(t, err)
+	require.Equal(t, "10", param(t, failure, "expected_size"))
+	require.Equal(t, "3", param(t, failure, "found"))
+}
+
+func TestASecondSendDuringATransferIsBusy(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{}))
+	transfers := transfersOf(t, session)
+	gate := newGatedContent()
+	done := make(chan error, 1)
+
+	go func() {
+		done <- transfers.Send(t.Context(), connectorapi.Upload{Path: "gcodes/a.gcode", Content: gate})
+	}()
+
+	<-gate.reading
+
+	err := transfers.Send(t.Context(), connectorapi.Upload{Path: "gcodes/b.gcode", Content: bytesContent("x")})
+	require.ErrorIs(t, err, connectorapi.ErrTransferBusy)
+	require.Equal(t, "gcodes/b.gcode", param(t, faultOf(t, err), "path"))
+
+	close(gate.released)
+	require.NoError(t, <-done)
+}
+
+func TestAnEarlyRefusalDoesNotWaitForAnOpenThatIsStillBlocked(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{UploadRefusal: &moonrakersim.UploadRefusal{
+		Status: 403, Body: `{"error":{"message":"no"}}`,
+	}})
+	session := connect(t, machine)
+	transfers := transfersOf(t, session)
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- transfers.Send(t.Context(), connectorapi.Upload{Path: "gcodes/a.gcode", Content: blockedOpenContent{}})
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, connectorapi.ErrTransferRefused)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send waited for the blocked Open")
+	}
+
+	machine.ClearUploadRefusal()
+	require.NoError(t, transfers.Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/a.gcode", Content: bytesContent("G28\n"),
+	}))
+}
+
+func TestCancellingTheContextAbortsTheTransfer(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+	transfers := transfersOf(t, session)
+	gate := newGatedContent()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+
+	go func() {
+		done <- transfers.Send(ctx, connectorapi.Upload{Path: "gcodes/a.gcode", Content: gate})
+	}()
+
+	<-gate.reading
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send did not return")
+	}
+
+	select {
+	case <-gate.closed:
+	default:
+		t.Fatal("the reader was not closed")
+	}
+
+	require.Empty(t, machine.Uploads())
+	require.NoError(t, transfers.Send(t.Context(), connectorapi.Upload{
+		Path: "gcodes/b.gcode", Content: bytesContent("G28\n"),
+	}))
 }
