@@ -1,11 +1,8 @@
 // Command moonraker-sim runs the fake Moonraker host as a process.
 //
-// It exists because moonrakersim moved out of the core module with the dialect
-// it serves, and a test in the core still wants a machine to dial: the composed
-// binary gate builds a server carrying this adapter and then has to point it at
-// something that answers. Go will not let the core import this module's
-// packages, and it should not, that is the boundary being demonstrated, so
-// the machine is offered as a program instead of as a library.
+// It lets a server built with this driver dial a machine that answers, with no
+// printer attached. The core cannot import this module's packages, so the
+// machine is offered as a program and not as a library.
 //
 // The contract with that caller is one line on stdout and nothing else:
 //

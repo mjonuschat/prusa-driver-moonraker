@@ -1,9 +1,8 @@
-# The build configuration that puts the Moonraker dialect into a binary
-# (ADR-20260901-7t4).
+# The build configuration that puts the Moonraker driver into a binary.
 #
 # Run it with:
 #
-#   make compose-build BUILD_FILE=examples/adapters/moonraker/build.yaml
+#   make build
 #
 # Every path below is read against this file's own directory, so the
 # configuration means the same thing wherever it is run from.
@@ -11,16 +10,16 @@ core:
   path: ./prusa-connect
 
 # The one line that admits the adapter. There is no second place to enable it:
-# no blank import in the core tree, no adoption list entry, no build tag, no row
-# in adapters/tags.json.
+# the core needs no blank import, no adoption list entry, no build tag and no
+# row in adapters/tags.json.
 #
 # A connector registers with sdk/connectorapi rather than with the resource
 # plane, so it is not adopted onto a resource kind at all. It is mounted where
 # core.connectors names it, or dialled at the addresses the endpoint list holds,
 # and a binary built without this file does not know the name `moonraker`.
 #
-# `path` is ADR-20260901-7t4 rule 15's path mode, which is for development and
-# on-premise builds and pins nothing. A released adapter is named by version
+# `path` names a directory, which is for development and on-premise builds and
+# pins nothing. A released adapter is named by version
 # instead, and that is the mode where go.sum records what was pulled:
 #
 #   adapters:
