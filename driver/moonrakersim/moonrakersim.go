@@ -107,6 +107,18 @@ type Options struct {
 	// where. Bind an address that is not loopback and this fake answers whatever
 	// reaches it, so do not: it authenticates nobody and it is not a machine.
 	Addr string
+
+	// NoGcodesRoot leaves the gcodes root out of every answer.
+	NoGcodesRoot bool
+	// ReadOnlyGcodes reports the gcodes root with permissions "r".
+	ReadOnlyGcodes bool
+	// FreeSpace is the free bytes the gcodes disk reports. Zero takes 1<<30.
+	FreeSpace int64
+	// Thumbnails is what file metadata lists and the thumbnail route serves. Nil
+	// takes one 300x300 entry.
+	Thumbnails []Thumbnail
+	// NoThumbnails makes metadata report an empty list. It wins over Thumbnails.
+	NoThumbnails bool
 }
 
 // DefaultObjects is a complete Klipper machine: it can pause, it has a hotend
@@ -165,6 +177,13 @@ type Host struct {
 	scripts   []string
 	filenames []string
 	eventTime float64
+
+	requests   map[string][]json.RawMessage
+	tree       map[string]entry
+	free       int64
+	noGcodes   bool
+	readOnly   bool
+	thumbnails []Thumbnail
 }
 
 // link is one open connection and the lock that keeps two writers off it. A
@@ -209,6 +228,8 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 		upgradeStatus: opts.UpgradeStatus,
 	}
 
+	host.initFiles(opts)
+
 	if host.objects == nil {
 		host.objects = DefaultObjects()
 	}
@@ -219,6 +240,7 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(websocketPath, host.serve)
+	mux.HandleFunc("/server/files/", host.serveThumbnail)
 
 	host.server = &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
@@ -354,7 +376,7 @@ func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		h.record(request.Method)
+		h.record(request.Method, request.Params)
 
 		if h.restarts(request.Method) {
 			return
@@ -366,11 +388,17 @@ func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Host) record(method string) {
+func (h *Host) record(method string, params json.RawMessage) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.calls = append(h.calls, method)
+
+	if h.requests == nil {
+		h.requests = map[string][]json.RawMessage{}
+	}
+
+	h.requests[method] = append(h.requests[method], slices.Clone(params))
 }
 
 // answer is what this host makes of one call.
@@ -407,6 +435,9 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 		return resultFrame(id, "ok")
 	case methodPrintPause, methodPrintResume, methodPrintCancel:
 		return resultFrame(id, "ok")
+	case methodFilesRoots, methodFilesGetDirectory, methodFilesMetadata,
+		methodFilesPostDirectory, methodFilesDeleteDirectory, methodFilesDeleteFile:
+		return h.answerFiles(id, method, params)
 	default:
 		return errorFrame(id, methodNotFound, "Method "+method+" is not available")
 	}
