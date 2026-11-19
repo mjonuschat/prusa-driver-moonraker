@@ -285,6 +285,7 @@ func (d *Driver) Connect(
 	session := newSession(conn, d.timeout, d.live, d.log)
 	session.httpBase = base
 	session.fetch = newFetcher(d.timeout)
+	session.upload = newUploadClient()
 	session.folders = &d.folders
 
 	resolved, err := session.handshake(ctx, d.Baseline().Intersect(profile))

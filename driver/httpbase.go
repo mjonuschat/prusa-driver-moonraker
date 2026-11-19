@@ -57,6 +57,16 @@ func newFetcher(timeout time.Duration) *fetcher {
 	}}
 }
 
+// newUploadClient has no Timeout, because one would end a long upload midway;
+// the caller's context bounds it instead. A redirect is returned, not followed.
+func newUploadClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // get returns the body of a 200 answer of at most limit bytes. A redirect, any
 // other status and a longer body are errors.
 func (f *fetcher) get(ctx context.Context, target string, limit int64) ([]byte, error) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -97,6 +98,9 @@ type Session struct {
 	// httpBase and fetch reach Moonraker's HTTP side, which serves thumbnails.
 	httpBase string
 	fetch    *fetcher
+	// upload sends files, which a client with a timeout would cut short.
+	upload  *http.Client
+	sending atomic.Bool
 
 	// reader gives each Klipper print an id, which the machine does not, and
 	// remembers which head prints. See telemetry.go.
