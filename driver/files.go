@@ -58,6 +58,8 @@ func (s *Session) List(ctx context.Context, asked string) (connectorapi.Listing,
 		return s.fileOrRefusal(ctx, asked, folder, relative, refusal.Message)
 	}
 
+	s.noteFolder(folder)
+
 	readOnly := s.gcodesReadOnly()
 	listing := connectorapi.Listing{
 		Directory: connectorapi.File{
@@ -181,4 +183,10 @@ func (s *Session) fileListing(ctx context.Context, folder, relative string, size
 		Path: folder, Name: name, DisplayName: name, Size: size, Modified: modified,
 		ReadOnly: s.gcodesReadOnly(), Preview: preview,
 	}}
+}
+
+func (s *Session) noteFolder(folder string) {
+	if s.folders != nil {
+		s.folders.remember(s.unit, folder)
+	}
 }

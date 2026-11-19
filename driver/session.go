@@ -89,6 +89,9 @@ type Session struct {
 	// marks stale.
 	files filesState
 
+	unit    string
+	folders *folderMemory
+
 	// httpBase and fetch reach Moonraker's HTTP side, which serves thumbnails.
 	httpBase string
 	fetch    *fetcher
@@ -250,6 +253,21 @@ func present(wanted, available []string) []string {
 func (s *Session) begin(identity connectorapi.Identity, caps connectorapi.Set) {
 	s.identity = identity
 	s.caps = caps
+	s.unit = identity.UnitUID
+
+	if s.folders != nil {
+		recorded := s.folders.recorded(s.unit)
+		if len(recorded) > 0 {
+			s.changes = make(chan connectorapi.FileChange, filesChangedDepth+len(recorded)+1)
+			s.changes <- rescanOf(gcodesRoot)
+
+			for _, folder := range recorded {
+				if folder != gcodesRoot {
+					s.changes <- rescanOf(folder)
+				}
+			}
+		}
+	}
 
 	go s.read()
 	go s.keepalive()

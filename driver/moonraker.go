@@ -150,6 +150,9 @@ type Driver struct {
 	live    liveness
 	dialer  *websocket.Dialer
 	log     *slog.Logger
+
+	// folders is what each machine's sessions have listed, kept across redials.
+	folders folderMemory
 }
 
 var _ connectorapi.Outbound = (*Driver)(nil)
@@ -281,6 +284,7 @@ func (d *Driver) Connect(
 	session := newSession(conn, d.timeout, d.live, d.log)
 	session.httpBase = base
 	session.fetch = newFetcher(d.timeout)
+	session.folders = &d.folders
 
 	resolved, err := session.handshake(ctx, d.Baseline().Intersect(profile))
 	if err != nil {
