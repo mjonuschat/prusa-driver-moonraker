@@ -1,6 +1,7 @@
 package moonraker_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -35,4 +36,86 @@ func TestTheDeclaredStatesAreSoundAndSendable(t *testing.T) {
 
 	require.False(t, set.Accepted("IDLE", moonraker.VerbPausePrint), "nothing is printing in IDLE")
 	require.True(t, set.Accepted("PAUSED", moonraker.VerbResumePrint))
+}
+
+func declaredSet(t *testing.T) connectorapi.StateSet {
+	t.Helper()
+
+	types, err := connectorapi.NewRegistry()
+	require.NoError(t, err)
+
+	registration, err := types.Lookup(moonraker.Type)
+	require.NoError(t, err)
+
+	return registration.Dialect().States
+}
+
+func TestEveryNewVerbIsAcceptedInTheRightStates(t *testing.T) {
+	t.Parallel()
+
+	set := declaredSet(t)
+	all := []connectorapi.StateName{"IDLE", "PRINTING", "PAUSED", "FINISHED", "STOPPED", "ERROR"}
+
+	cases := []struct {
+		verb connectorapi.Capability
+		in   []connectorapi.StateName
+	}{
+		{moonraker.VerbStartPrint, []connectorapi.StateName{"IDLE", "FINISHED", "STOPPED"}},
+		{moonraker.VerbResetPrinter, all},
+		{moonraker.VerbReset, all},
+		{moonraker.VerbSendGCode, all[:5]},
+		{moonraker.VerbForceGCode, all},
+	}
+
+	for _, tc := range cases {
+		for _, state := range all {
+			require.Equalf(t, slices.Contains(tc.in, state), set.Accepted(state, tc.verb),
+				"%s in %s", tc.verb, state)
+		}
+	}
+}
+
+func TestTheTransitionsCoverShutdownAndRecovery(t *testing.T) {
+	t.Parallel()
+
+	set := declaredSet(t)
+	declared := func(from, to connectorapi.StateName, verb connectorapi.Capability) bool {
+		return slices.Contains(set.Transitions, connectorapi.Transition{From: from, To: to, Verb: verb})
+	}
+
+	for _, from := range []connectorapi.StateName{"IDLE", "FINISHED", "STOPPED"} {
+		require.Truef(t, declared(from, "PRINTING", moonraker.VerbStartPrint), "%s to PRINTING", from)
+	}
+
+	for _, from := range []connectorapi.StateName{"IDLE", "PRINTING", "PAUSED", "FINISHED", "STOPPED"} {
+		require.Truef(t, declared(from, "ERROR", moonraker.VerbForceGCode), "%s to ERROR", from)
+	}
+
+	require.True(t, declared("ERROR", "IDLE", moonraker.VerbResetPrinter))
+	require.True(t, declared("ERROR", "IDLE", moonraker.VerbReset))
+
+	for _, to := range []connectorapi.StateName{"FINISHED", "STOPPED", "PAUSED"} {
+		require.Truef(t, declared("ERROR", to, ""), "ERROR to %s", to)
+	}
+
+	require.True(t, declared("PRINTING", "ERROR", ""))
+	require.True(t, declared("ERROR", "PRINTING", ""))
+}
+
+func TestEveryStateHasAnEntryAndAnExitInTheTransitions(t *testing.T) {
+	t.Parallel()
+
+	set := declaredSet(t)
+
+	for _, state := range set.States {
+		entered, left := false, false
+
+		for _, move := range set.Transitions {
+			entered = entered || move.To == state.Name
+			left = left || move.From == state.Name
+		}
+
+		require.Truef(t, entered, "nothing enters %s", state.Name)
+		require.Truef(t, left, "nothing leaves %s", state.Name)
+	}
 }

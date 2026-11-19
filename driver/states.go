@@ -5,12 +5,18 @@ package moonraker
 // telemetry.go. A word Klipper adds that the table does not carry still reaches
 // the tree in upper case, and a client then finds no entry for it here.
 //
+// Starting a print, a script and the two resets are guarded as well: a print
+// does not start over one that is running, and a machine in ERROR takes a
+// reset and an emergency stop and nothing else that moves it.
+//
 // The guards follow Klipper's own pause_resume section: PAUSE does nothing to a
 // print that is already paused, and RESUME does nothing to one that is not.
 // Neither is an error on the wire, so a guard is the only place a client can
 // learn it. A heater target and a status read are accepted in every state.
 
 import (
+	"slices"
+
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 )
 
@@ -24,27 +30,32 @@ const (
 	stateError    connectorapi.StateName = "ERROR"
 )
 
-// states is this dialect's declared state set. A print starts from Mainsail,
-// Fluidd or the machine's own screen and not through this driver, so every
-// move into PRINTING is one the machine makes on its own.
+// states is this dialect's declared state set.
 func states() connectorapi.StateSet {
 	idle := []connectorapi.Capability{VerbSendStateInfo, VerbNozzleTarget, VerbBedTarget}
+	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
+	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
+	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
+
+	accepts := func(lists ...[]connectorapi.Capability) []connectorapi.Capability {
+		return slices.Concat(lists...)
+	}
 
 	return connectorapi.StateSet{
 		States: []connectorapi.DeviceState{
-			{Name: stateIdle, DisplayName: "Idle", Accepts: idle},
-			{Name: statePrinting, DisplayName: "Printing", Accepts: append(
-				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, idle...)},
-			{Name: statePaused, DisplayName: "Paused", Accepts: append(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, idle...)},
-			{Name: stateFinished, DisplayName: "Finished", Accepts: idle},
-			{Name: stateStopped, DisplayName: "Stopped", Accepts: idle},
-			{Name: stateError, DisplayName: "Error", Accepts: idle},
+			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle)},
+			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
+				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle)},
+			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle)},
+			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle)},
+			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle)},
+			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle)},
 		},
 		Transitions: []connectorapi.Transition{
-			{From: stateIdle, To: statePrinting},
-			{From: stateFinished, To: statePrinting},
-			{From: stateStopped, To: statePrinting},
+			{From: stateIdle, To: statePrinting, Verb: VerbStartPrint},
+			{From: stateFinished, To: statePrinting, Verb: VerbStartPrint},
+			{From: stateStopped, To: statePrinting, Verb: VerbStartPrint},
 			{From: stateError, To: statePrinting},
 			{From: statePrinting, To: statePaused, Verb: VerbPausePrint},
 			{From: statePaused, To: statePrinting, Verb: VerbResumePrint},
@@ -52,9 +63,19 @@ func states() connectorapi.StateSet {
 			{From: statePaused, To: stateStopped, Verb: VerbStopPrint},
 			{From: statePrinting, To: stateFinished},
 			{From: statePrinting, To: stateError},
+			{From: stateIdle, To: stateError, Verb: VerbForceGCode},
+			{From: statePrinting, To: stateError, Verb: VerbForceGCode},
+			{From: statePaused, To: stateError, Verb: VerbForceGCode},
+			{From: stateFinished, To: stateError, Verb: VerbForceGCode},
+			{From: stateStopped, To: stateError, Verb: VerbForceGCode},
 			{From: stateFinished, To: stateIdle},
 			{From: stateStopped, To: stateIdle},
 			{From: stateError, To: stateIdle},
+			{From: stateError, To: stateIdle, Verb: VerbResetPrinter},
+			{From: stateError, To: stateIdle, Verb: VerbReset},
+			{From: stateError, To: stateFinished},
+			{From: stateError, To: stateStopped},
+			{From: stateError, To: statePaused},
 		},
 	}
 }

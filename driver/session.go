@@ -106,6 +106,10 @@ type Session struct {
 
 	closing sync.Once
 
+	// machineState is the last /state word the machine reported, nil until it
+	// has reported one.
+	machineState atomic.Pointer[string]
+
 	dropped atomic.Uint64
 	refused atomic.Uint64
 }
@@ -170,7 +174,12 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 
 	s.reader.heads.count = len(extruders)
 	s.first = append(toolPatches(dumped, extruders), buildVolumePatches(dumped)...)
-	s.first = append(s.first, s.reader.patchesFrom(opening.Status, opening.EventTime, time.Now())...)
+	opened := s.reader.patchesFrom(opening.Status, opening.EventTime, time.Now())
+	s.first = append(s.first, opened...)
+
+	for _, patch := range opened {
+		s.noteState(patch)
+	}
 
 	s.probe = probe(listed.Objects, heaters, len(extruders), offered)
 
@@ -298,6 +307,10 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 			With(fault.StringParam("verb", cmd.Verb.String()))
 	}
 
+	if err := s.refuseInState(cmd.Verb); err != nil {
+		return connectorapi.Result{}, err
+	}
+
 	method, params, err := s.callFor(cmd)
 	if err != nil {
 		return connectorapi.Result{}, err
@@ -322,6 +335,25 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 	}
 
 	return connectorapi.Result{OK: true, Raw: result}, nil
+}
+
+// refuseInState is the guard on a verb the machine's last reported state does
+// not accept. A session that has heard no state accepts everything, because
+// nothing says it should not.
+func (s *Session) refuseInState(verb connectorapi.Capability) error {
+	now := s.machineState.Load()
+	if now == nil {
+		return nil
+	}
+
+	state := connectorapi.StateName(*now)
+	if states().Accepted(state, verb) {
+		return nil
+	}
+
+	return fault.PrinterVerbNotAllowedInState.
+		New("the printer reported "+*now+", and "+verb.String()+" is not sent in that state").
+		With(fault.StringParam("verb", verb.String()), fault.StringParam("state", *now))
 }
 
 // callFor is the call one command becomes: a Moonraker method of its own, a
@@ -584,6 +616,8 @@ func (s *Session) update(params json.RawMessage) {
 // repeating snapshot, and a driver that dropped the newest would hold the
 // host's tree at a stale reading for as long as the host stayed behind.
 func (s *Session) report(patch connectorapi.StatePatch) {
+	s.noteState(patch)
+
 	select {
 	case s.patches <- patch:
 		return
@@ -648,4 +682,12 @@ func (s *Session) ping() error {
 	}
 
 	return nil
+}
+
+// noteState keeps the /state word a patch carries for the verb guard.
+func (s *Session) noteState(patch connectorapi.StatePatch) {
+	var word string
+	if patch.Path == statePath && json.Unmarshal(patch.Value, &word) == nil {
+		s.machineState.Store(&word)
+	}
 }

@@ -3,6 +3,7 @@ package moonraker_test
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
+	"github.com/prusa3d/prusa-connect/sdk/fault"
 )
 
 // settle is how long a case waits for something the machine has to send. It is
@@ -84,9 +86,19 @@ func TestPausingAPrintReachesTheMachine(t *testing.T) {
 	machine := startMachine(t, moonrakersim.Options{})
 	session := connect(t, machine)
 
-	for _, verb := range []connectorapi.Capability{
-		moonraker.VerbPausePrint, moonraker.VerbResumePrint, moonraker.VerbStopPrint,
+	for _, step := range []struct {
+		verb  connectorapi.Capability
+		state string
+	}{
+		{moonraker.VerbPausePrint, "printing"},
+		{moonraker.VerbResumePrint, "paused"},
+		{moonraker.VerbStopPrint, "printing"},
 	} {
+		verb := step.verb
+
+		machine.Push(map[string]map[string]any{"print_stats": {"state": step.state}})
+		collect(t, session, map[string]string{"/state": `"` + strings.ToUpper(step.state) + `"`})
+
 		result, err := session.Do(t.Context(), connectorapi.Command{Verb: verb})
 		require.NoError(t, err, "%s did not reach the machine", verb)
 		require.True(t, result.OK, "%s was not accepted", verb)
@@ -106,6 +118,9 @@ func TestACancelledPauseNeverReachesTheMachine(t *testing.T) {
 
 	machine := startMachine(t, moonrakersim.Options{})
 	session := connect(t, machine)
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "printing"}})
+	collect(t, session, map[string]string{"/state": `"PRINTING"`})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -134,7 +149,12 @@ func TestAMachineThatRefusesAPauseSaysWhy(t *testing.T) {
 		Refused: map[string]string{"printer.print.pause": "Print Pause Failed"},
 	})
 
-	result, err := connect(t, machine).Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbPausePrint})
+	session := connect(t, machine)
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "printing"}})
+	collect(t, session, map[string]string{"/state": `"PRINTING"`})
+
+	result, err := session.Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbPausePrint})
 
 	require.NoError(t, err, "a machine that said no was reported as a connection failure")
 	require.False(t, result.OK, "a refused pause was reported as carried out")
@@ -672,4 +692,72 @@ func TestTheForceGcodeArgumentDeclaresM112AsTheOnlyValue(t *testing.T) {
 	caps, _ := connect(t, startMachine(t, moonrakersim.Options{})).Capabilities()
 
 	require.Equal(t, []string{"M112"}, caps[moonraker.ArgForceGCode].Supported)
+}
+
+func TestStartingAPrintInAStateThatRefusesItSendsNothing(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "printing"}})
+	collect(t, session, map[string]string{"/state": `"PRINTING"`})
+
+	_, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+	})
+	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
+	require.Empty(t, machine.Filenames())
+}
+
+func TestAnEmergencyStopOfAnIdleMachineRefusesAStartAndAScript(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbForceGCode, Args: map[string]string{"gcode": "M112"},
+	})
+	require.NoError(t, err)
+	collect(t, session, map[string]string{"/state": `"ERROR"`})
+
+	_, err = session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+	})
+	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
+
+	_, err = session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbSendGCode, Args: map[string]string{"gcode": "G28"},
+	})
+	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
+	require.Empty(t, machine.Filenames())
+	require.Empty(t, machine.Scripts())
+
+	result, err := session.Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbReset})
+	require.NoError(t, err)
+	require.True(t, result.OK)
+}
+
+func TestAFreshSessionAcceptsEveryVerb(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbStartPrint, Args: map[string]string{"path": "a.gcode"},
+	})
+	require.False(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()))
+}
+
+func TestAnIdleMachineRefusesAPauseSentRightAfterConnecting(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbPausePrint})
+	require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%v", err)
+	require.False(t, machine.Called("printer.print.pause"))
 }
