@@ -53,7 +53,10 @@ func main() {
 	// The one line of the contract. It is written straight to an unbuffered
 	// os.Stdout, so a caller blocked on a read is released here rather than
 	// whenever a buffer happened to fill.
-	fmt.Fprintln(os.Stdout, "moonraker-sim listening on "+host.Address())
+	if _, err := fmt.Fprintln(os.Stdout, "moonraker-sim listening on "+host.Address()); err != nil {
+		fmt.Fprintln(os.Stderr, "moonraker-sim: announce the address:", err)
+		os.Exit(1)
+	}
 
 	// Block for as long as the process lives. The host serves on its own
 	// goroutines; there is nothing left for this one to do, and select on no
