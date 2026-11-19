@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -69,7 +70,20 @@ var (
 	// ErrRefused reports a machine that answered a call with a JSON-RPC error
 	// during the identity exchange, so no session was built.
 	ErrRefused = errors.New("moonraker: the machine refused a call")
+	// ErrUnauthorized reports a machine that refused the upgrade with a 401 or
+	// 403, because it wants credentials this driver does not send.
+	ErrUnauthorized = errors.New("moonraker: authorization required")
 )
+
+// UnauthorizedError is the error Connect returns for a refused upgrade. It
+// carries the HTTP status, which gorilla's handshake error does not.
+type UnauthorizedError struct {
+	Status int
+}
+
+func (e *UnauthorizedError) Error() string { return ErrUnauthorized.Error() }
+
+func (e *UnauthorizedError) Is(target error) bool { return target == ErrUnauthorized }
 
 //nolint:gochecknoinits // registration has to happen before main; the host reaches it through a blank import.
 func init() { connectorapi.Register(Type, doc(), New, dialect()) }
@@ -229,6 +243,11 @@ func (d *Driver) Connect(
 
 	conn, response, err := d.dialer.DialContext(ctx, target, nil)
 	if err != nil {
+		if response != nil &&
+			(response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+			return nil, &UnauthorizedError{Status: response.StatusCode}
+		}
+
 		return nil, fmt.Errorf("%w: %s: %w", ErrUnreachable, target, err)
 	}
 

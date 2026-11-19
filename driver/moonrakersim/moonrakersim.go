@@ -91,6 +91,9 @@ type Options struct {
 	// message it answers with. It is how a case reads what a dialect does with a
 	// machine that will not do as it is told.
 	Refused map[string]string
+	// UpgradeStatus, when nonzero, is the HTTP status this host answers every
+	// upgrade request with, and no websocket is opened.
+	UpgradeStatus int
 	// Addr is the host:port to bind. Empty binds an ephemeral loopback port,
 	// which is what a test wants: two cases running at once must not have to
 	// agree about a number.
@@ -143,6 +146,8 @@ type Host struct {
 	server   *http.Server
 	upgrader websocket.Upgrader
 
+	upgradeStatus int
+
 	hostname string
 	version  string
 	objects  []string
@@ -192,6 +197,8 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 		objects:  opts.Objects,
 		status:   opts.Status,
 		refused:  maps.Clone(opts.Refused),
+
+		upgradeStatus: opts.UpgradeStatus,
 	}
 
 	if host.objects == nil {
@@ -290,6 +297,12 @@ func (h *Host) Push(status map[string]map[string]any) {
 
 // serve upgrades one connection and answers calls on it until it ends.
 func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
+	if code := h.upgradeStatus; code != 0 {
+		http.Error(w, http.StatusText(code), code)
+
+		return
+	}
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
