@@ -65,8 +65,6 @@ func (s *Session) Storages(_ context.Context) ([]connectorapi.Storage, error) {
 }
 
 // setFreeSpace replaces the reported free space and clears the stale mark.
-//
-//nolint:unused // called by the file operations in a later task.
 func (s *Session) setFreeSpace(usage diskUsage) {
 	s.files.mu.Lock()
 	defer s.files.mu.Unlock()
