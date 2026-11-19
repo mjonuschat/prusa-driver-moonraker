@@ -248,7 +248,8 @@ func (d *Driver) Connect(
 			return nil, &UnauthorizedError{Status: response.StatusCode}
 		}
 
-		return nil, fmt.Errorf("%w: %s: %w", ErrUnreachable, target, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrUnreachable, redactAddress(target),
+			redactCause(err, endpoint.Address, target))
 	}
 
 	if response != nil && response.Body != nil {
@@ -328,7 +329,12 @@ func websocketURL(address string) (string, error) {
 
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("%w: %q is not an address: %w", ErrInvalidConfig, address, err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+
+		return "", fmt.Errorf("%w: %q is not an address: %w", ErrInvalidConfig, redactAddress(address), err)
 	}
 
 	switch parsed.Scheme {
@@ -338,11 +344,11 @@ func websocketURL(address string) (string, error) {
 		parsed.Scheme = "wss"
 	default:
 		return "", fmt.Errorf("%w: %q names the scheme %q, and this dialect speaks http, https, ws and wss",
-			ErrInvalidConfig, address, parsed.Scheme)
+			ErrInvalidConfig, redactAddress(address), parsed.Scheme)
 	}
 
 	if parsed.Host == "" {
-		return "", fmt.Errorf("%w: %q names no host", ErrInvalidConfig, address)
+		return "", fmt.Errorf("%w: %q names no host", ErrInvalidConfig, redactAddress(address))
 	}
 
 	if parsed.Path == "" || parsed.Path == "/" {
