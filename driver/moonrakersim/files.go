@@ -138,6 +138,18 @@ func (h *Host) NotifyFiles(items ...FileEvent) {
 	}
 }
 
+// NotifyRaw sends one text frame, as given, to every open connection. It is how
+// a case sends a notification the real machine would never spell.
+func (h *Host) NotifyRaw(frame string) {
+	h.mu.Lock()
+	open := slices.Clone(h.conns)
+	h.mu.Unlock()
+
+	for _, held := range open {
+		_ = held.write(json.RawMessage(frame))
+	}
+}
+
 func (f *FileItem) wire() map[string]any {
 	return map[string]any{"root": f.Root, "path": f.Path, "size": f.Size, "modified": f.Modified}
 }

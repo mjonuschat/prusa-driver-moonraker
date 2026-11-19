@@ -53,7 +53,7 @@ func gcodesStorage(roots []rootInfo, usage *diskUsage) (storage connectorapi.Sto
 type filesState struct {
 	mu       sync.Mutex
 	storages []connectorapi.Storage
-	stale    bool //nolint:unused // set by the file-change handling in a later task.
+	stale    bool
 }
 
 // Storages is the storage list held from the handshake. It sends nothing.

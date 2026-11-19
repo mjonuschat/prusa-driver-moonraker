@@ -102,6 +102,7 @@ type Session struct {
 	first []connectorapi.StatePatch
 
 	patches chan connectorapi.StatePatch
+	changes chan connectorapi.FileChange
 	// done closes when the reader has gone, so a call waiting on a reply that
 	// can no longer arrive is released.
 	done chan struct{}
@@ -140,6 +141,7 @@ func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log 
 		live:    live,
 		log:     log,
 		patches: make(chan connectorapi.StatePatch, patchBacklog),
+		changes: make(chan connectorapi.FileChange, filesChangedDepth),
 		done:    make(chan struct{}),
 	}
 }
@@ -568,11 +570,12 @@ func (s *Session) dispatch(data []byte) {
 		return
 	}
 
-	if frame.Method != notifyStatusUpdate {
-		return
+	switch frame.Method {
+	case notifyStatusUpdate:
+		s.update(frame.Params)
+	case notifyFilelistChanged:
+		s.filesChanged(frame.Params)
 	}
-
-	s.update(frame.Params)
 }
 
 // answer hands one reply to the call that is waiting for it. A reply nobody is
