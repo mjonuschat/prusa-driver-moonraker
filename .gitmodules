@@ -1,0 +1,3 @@
+[submodule "prusa-connect"]
+	path = prusa-connect
+	url = https://github.com/prusa3d/prusa-connect.git
