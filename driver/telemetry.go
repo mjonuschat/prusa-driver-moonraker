@@ -87,22 +87,25 @@ const roundingUnit = 100
 //
 // Klipper counts no jobs. The driver contract asks every driver that reports a
 // print to report one at /job/id, because a host names the row and the events
-// of a print by it, so this derives one: the file's name and the moment the
-// print began. The moment is worked out from the machine's own total_duration,
-// which counts from the start of the print, and it is held for the life of the
-// print so that two readings of one print produce one id.
+// of a print by it, so this derives one from the file's name and the moment the
+// print began. That moment is Klipper's eventtime minus the print's
+// total_duration, rounded to a whole second, so a driver that reconnects
+// mid-print derives the same id from a fresh reading. It is held for the life
+// of the print.
 //
-// The moment is rounded to the minute. A driver that reconnects to a machine
-// mid-print works it out again from a fresh reading, and total_duration and the
-// clock are not read in the same instant: a finer rounding would give one print
-// two ids across a reconnect, which is two prints in every record that reads
-// them.
+// When either value is missing the moment falls back to the driver's own clock
+// minus total_duration, rounded to the minute. That id can differ from the one
+// a reconnect makes. A pause has not been measured: whether total_duration
+// keeps counting through one is not known.
 type prints struct {
 	// id is the print on the bed now, empty when nothing is printing.
 	id string
 	// file is the name the id was derived from, so a machine that starts a
 	// different file is a different print.
 	file string
+	// state is the last print state heard, because Moonraker sends only what
+	// changed and a notification without one means it is unchanged.
+	state string
 }
 
 // jobStartRounding is how coarsely a derived start is rounded. See prints.
@@ -122,7 +125,8 @@ type reader struct {
 // A field the machine did not report produces no patch. Moonraker sends only
 // what changed, so a frame carrying one temperature must not blank the rest of
 // the tree.
-func (r *reader) patchesFrom(status map[string]json.RawMessage, now time.Time) []connectorapi.StatePatch {
+func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float64, now time.Time,
+) []connectorapi.StatePatch {
 	p := &r.prints
 	objects := objectFields(status)
 
@@ -143,7 +147,7 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, now time.Time) [
 	// outcome. That reading is the last one about a print appendJob has just
 	// taken off the bed.
 	before := p.id
-	out = p.appendJob(out, stats, now)
+	out = p.appendJob(out, stats, eventTime, now)
 
 	if before != "" || p.id != "" {
 		out = appendVerbatim(out, stats["filename"], jobNamePath)
@@ -170,11 +174,11 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, now time.Time) [
 // appendJob gives the print an id and, when it ends, an outcome.
 //
 // The id is minted once, on the first reading that says a file is printing, and
-// held until the machine prints something else. A reading that carries neither
-// a state nor a file name says nothing about which print it means, so it leaves
-// what is held alone: Moonraker sends only what changed.
+// held until the machine prints something else. Moonraker sends only what
+// changed, so a notification that omits the state or the file means it is
+// unchanged, and the remembered value stands in for it.
 func (p *prints) appendJob(
-	out []connectorapi.StatePatch, stats map[string]json.RawMessage, now time.Time,
+	out []connectorapi.StatePatch, stats map[string]json.RawMessage, eventTime float64, now time.Time,
 ) []connectorapi.StatePatch {
 	state, file := klipperText(stats["state"]), klipperText(stats["filename"])
 
@@ -182,9 +186,19 @@ func (p *prints) appendJob(
 		return out
 	}
 
+	// A different file while the remembered state is printing is a new print.
+	// The old one gets no outcome: the machine has not said how it ended.
+	changed := file != "" && file != p.file && slices.Contains(klipperPrintingStates, p.state)
+
+	if state == "" {
+		state = p.state
+	}
+
 	if file == "" {
 		file = p.file
 	}
+
+	p.state, p.file = state, file
 
 	if !slices.Contains(klipperPrintingStates, state) {
 		if p.id == "" {
@@ -197,38 +211,53 @@ func (p *prints) appendJob(
 
 		// The print is off the bed, so the next one is a different print even
 		// when it is the same file. The id stays in the host's tree, which is
-		// what keeps the row named while the machine tidies up.
-		p.id, p.file = "", ""
+		// what keeps the row named while the machine tidies up. The file stays
+		// here, because a reprint of it sends no filename.
+		p.id = ""
 
 		return out
 	}
 
-	if p.id == "" || p.file != file {
-		p.file, p.id = file, derivedJobID(file, startOf(stats, now))
+	if file == "" {
+		return out
+	}
+
+	if p.id == "" || changed {
+		p.id = derivedJobID(file, jobStart(stats, eventTime, now))
 	}
 
 	return appendText(out, jobIDPath, p.id)
 }
 
-// startOf is when this print began, from the machine's own count of how long it
-// has been running. A machine that reports no count began it now.
-func startOf(stats map[string]json.RawMessage, now time.Time) time.Time {
+// jobStart is when this print began, as text that names the start. With
+// Klipper's clock and the machine's count of the print's age it is the
+// klipper: second the print began at, which a reconnect reads the same. Without
+// either it is the wall: minute by the driver's clock, and the prefixes keep
+// the two from colliding.
+func jobStart(stats map[string]json.RawMessage, eventTime float64, now time.Time) string {
 	var running float64
-	if json.Unmarshal(stats["total_duration"], &running) != nil {
-		return now.Truncate(jobStartRounding)
+	known := json.Unmarshal(stats["total_duration"], &running) == nil
+
+	if eventTime > 0 && known {
+		return "klipper:" + strconv.FormatInt(int64(math.Round(eventTime-running)), 10)
 	}
 
-	return now.Add(-time.Duration(running * float64(time.Second))).Truncate(jobStartRounding)
+	if !known {
+		running = 0
+	}
+
+	return "wall:" + now.Add(-time.Duration(running*float64(time.Second))).
+		Truncate(jobStartRounding).UTC().Format(time.RFC3339)
 }
 
 // derivedJobID is the id this driver gives a print the machine did not number:
-// the file and the minute the print began, as the hex of their digest.
+// the file and the moment the print began, as the hex of their digest.
 //
 // A digest rather than the two values joined, because a file name is whatever
 // somebody called the file and an id travels in a URL, in a cursor and in an
 // event.
-func derivedJobID(file string, started time.Time) string {
-	sum := sha256.Sum256([]byte(file + "\x00" + started.UTC().Format(time.RFC3339)))
+func derivedJobID(file, start string) string {
+	sum := sha256.Sum256([]byte(file + "\x00" + start))
 
 	return hex.EncodeToString(sum[:jobIDBytes])
 }

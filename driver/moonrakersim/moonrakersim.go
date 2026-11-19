@@ -152,12 +152,13 @@ type Host struct {
 	version  string
 	objects  []string
 
-	mu      sync.Mutex
-	status  map[string]map[string]any
-	refused map[string]string
-	conns   []*link
-	calls   []string
-	scripts []string
+	mu        sync.Mutex
+	status    map[string]map[string]any
+	refused   map[string]string
+	conns     []*link
+	calls     []string
+	scripts   []string
+	eventTime float64
 }
 
 // link is one open connection and the lock that keeps two writers off it. A
@@ -191,12 +192,13 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 	}
 
 	host := &Host{
-		listener: listener,
-		hostname: orElse(opts.Hostname, "voron-bench"),
-		version:  orElse(opts.SoftwareVersion, "v0.12.0-284-gfb1b4e39"),
-		objects:  opts.Objects,
-		status:   opts.Status,
-		refused:  maps.Clone(opts.Refused),
+		eventTime: klipperTime,
+		listener:  listener,
+		hostname:  orElse(opts.Hostname, "voron-bench"),
+		version:   orElse(opts.SoftwareVersion, "v0.12.0-284-gfb1b4e39"),
+		objects:   opts.Objects,
+		status:    opts.Status,
+		refused:   maps.Clone(opts.Refused),
 
 		upgradeStatus: opts.UpgradeStatus,
 	}
@@ -231,6 +233,21 @@ func (h *Host) Close() error {
 	}
 
 	return nil
+}
+
+// SetEventTime sets the eventtime every reply and pushed update carries.
+func (h *Host) SetEventTime(seconds float64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.eventTime = seconds
+}
+
+func (h *Host) clock() float64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.eventTime
 }
 
 // HangUp drops every open connection, which is the machine losing power rather
@@ -287,7 +304,7 @@ func (h *Host) Push(status map[string]map[string]any) {
 	frame := map[string]any{
 		"jsonrpc": jsonrpcVersion,
 		"method":  notifyStatusUpdate,
-		"params":  []any{status, klipperTime},
+		"params":  []any{status, h.clock()},
 	}
 
 	for _, held := range open {
@@ -362,7 +379,7 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 		return resultFrame(id, map[string]any{"objects": h.objects})
 	case methodObjectsQuery, methodObjectsSubscribe:
 		return resultFrame(id, map[string]any{
-			"eventtime": klipperTime, "status": h.reading(params),
+			"eventtime": h.clock(), "status": h.reading(params),
 		})
 	case methodGcodeScript:
 		h.recordScript(params)
