@@ -143,10 +143,7 @@ func (s *Session) fileOrRefusal(
 					continue
 				}
 
-				return connectorapi.Listing{Directory: connectorapi.File{
-					Path: folder, Name: file.Filename, DisplayName: file.Filename,
-					Size: file.Size, Modified: int64(file.Modified), ReadOnly: s.gcodesReadOnly(),
-				}}, nil
+				return s.fileListing(ctx, folder, relative, file.Size, int64(file.Modified)), nil
 			}
 		}
 	}
@@ -156,4 +153,32 @@ func (s *Session) fileOrRefusal(
 		With(fault.StringParam("path", asked), fault.StringParam("machine_reason", message))
 
 	return connectorapi.Listing{}, fmt.Errorf("%w: %w", connectorapi.ErrListingRefused, refused)
+}
+
+// fileListing is the listing of a path that names one file. The size and the
+// modification time come from the parent's row, and metadata fills in what the
+// row lacks.
+func (s *Session) fileListing(ctx context.Context, folder, relative string, size, modified int64) connectorapi.Listing {
+	meta := s.metadataOf(ctx, relative)
+
+	var preview []byte
+
+	if meta != nil {
+		if size == 0 {
+			size = meta.Size
+		}
+
+		if modified == 0 {
+			modified = int64(meta.Modified)
+		}
+
+		preview = s.previewFrom(ctx, relative, meta)
+	}
+
+	name := path.Base(folder)
+
+	return connectorapi.Listing{Directory: connectorapi.File{
+		Path: folder, Name: name, DisplayName: name, Size: size, Modified: modified,
+		ReadOnly: s.gcodesReadOnly(), Preview: preview,
+	}}
 }

@@ -256,6 +256,11 @@ func (d *Driver) Connect(
 		return nil, err
 	}
 
+	base, err := httpBase(target)
+	if err != nil {
+		return nil, err
+	}
+
 	conn, response, err := d.dialer.DialContext(ctx, target, nil)
 	if err != nil {
 		if response != nil &&
@@ -274,6 +279,8 @@ func (d *Driver) Connect(
 	conn.SetReadLimit(maxFrameBytes)
 
 	session := newSession(conn, d.timeout, d.live, d.log)
+	session.httpBase = base
+	session.fetch = newFetcher(d.timeout)
 
 	resolved, err := session.handshake(ctx, d.Baseline().Intersect(profile))
 	if err != nil {

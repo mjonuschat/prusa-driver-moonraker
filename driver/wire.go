@@ -23,6 +23,7 @@ const (
 
 	methodRoots           = "server.files.roots"
 	methodGetDirectory    = "server.files.get_directory"
+	methodGetMetadata     = "server.files.metadata"
 	methodMetadata        = "server.files.metadata"
 	methodPostDirectory   = "server.files.post_directory"
 	methodDeleteDirectory = "server.files.delete_directory"

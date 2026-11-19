@@ -89,6 +89,10 @@ type Session struct {
 	// marks stale.
 	files filesState
 
+	// httpBase and fetch reach Moonraker's HTTP side, which serves thumbnails.
+	httpBase string
+	fetch    *fetcher
+
 	// reader gives each Klipper print an id, which the machine does not, and
 	// remembers which head prints. See telemetry.go.
 	reader reader
