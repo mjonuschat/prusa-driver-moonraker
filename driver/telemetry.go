@@ -321,6 +321,12 @@ func objectFields(status map[string]json.RawMessage) map[string]map[string]json.
 // M112 on an idle machine, so the state word needs both.
 type machineState struct {
 	print, hook string
+	// held is the end word of the last print, kept while Klipper reports
+	// standby. A cancel macro that ends in SDCARD_RESET_FILE, as Klippain's does,
+	// takes print_stats from cancelled straight to standby, and the machine would
+	// then read as idle with no sign that a print just ended. It is empty until a
+	// print ends, and a new print, a shutdown or a reconnect clears it.
+	held string
 }
 
 // appendState maps Klipper's own state words onto the one every dialect here
@@ -334,6 +340,7 @@ func (m *machineState) appendState(
 
 	if value := stringOf(printState); value != "" {
 		m.print, heard = value, true
+		m.noteEnd()
 	}
 
 	if value := stringOf(hookState); value != "" {
@@ -349,6 +356,7 @@ func (m *machineState) appendState(
 	switch {
 	case m.hook != "" && m.hook != "ready":
 		word = "ERROR"
+		m.held = ""
 	case m.print == "":
 		return out
 	default:
@@ -358,6 +366,10 @@ func (m *machineState) appendState(
 		if !known {
 			word = strings.ToUpper(m.print)
 		}
+
+		if m.print == klipperStandby && m.held != "" {
+			word = m.held
+		}
 	}
 
 	encoded, err := json.Marshal(word)
@@ -366,6 +378,22 @@ func (m *machineState) appendState(
 	}
 
 	return append(out, connectorapi.StatePatch{Path: statePath, Value: encoded})
+}
+
+// klipperStandby is print_stats.state when no print is loaded.
+const klipperStandby = "standby"
+
+// noteEnd updates the held end word for the print state just heard. A print
+// error is not held: ERROR refuses start_print, so holding it would lock the
+// machine out until the driver reconnected.
+func (m *machineState) noteEnd() {
+	switch m.print {
+	case "complete", "cancelled":
+		m.held = stateWords[m.print]
+	case klipperStandby:
+	default:
+		m.held = ""
+	}
 }
 
 func stringOf(raw json.RawMessage) string {
