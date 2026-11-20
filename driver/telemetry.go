@@ -313,6 +313,9 @@ func (p *prints) appendJob(
 
 	if p.id == "" || changed {
 		p.id = derivedJobID(file, jobStart(stats, eventTime, now))
+		if p.remainingKnown && (p.estimateFile != file || p.estimate <= 0) {
+			out = append(out, connectorapi.StatePatch{Path: jobTimeRemainingPath, Value: json.RawMessage("null")})
+		}
 		// The last print's progress and remaining time are not this one's.
 		p.progressKnown, p.remainingKnown = false, false
 	}

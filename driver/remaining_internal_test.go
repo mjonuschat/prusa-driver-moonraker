@@ -140,6 +140,16 @@ func TestANewPrintForgetsTheLastProgress(t *testing.T) {
 	assert.Equal(t, "990", remainingIn(again), "the old 90 percent must not shorten the new print")
 }
 
+func TestNewFileClearsPreviousRemainingTimeUntilItsEstimateIsKnown(t *testing.T) {
+	held := readerWithEstimate(1000)
+	held.patchesFrom(reading(printingFrame(`, "display_status": {"progress": 0.5}`), t), 0, time.Unix(0, 0))
+
+	patches := held.patchesFrom(reading(
+		`{"print_stats": {"state": "printing", "filename": "other.gcode", "print_duration": 1}}`, t),
+		100, time.Unix(0, 0))
+	require.Equal(t, "null", remainingIn(patches))
+}
+
 func TestTheEstimateIsAskedForOncePerFile(t *testing.T) {
 	t.Parallel()
 
