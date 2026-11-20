@@ -1,0 +1,35 @@
+# The context of docker/Dockerfile is this repository root. The core is the
+# prusa-connect/ submodule, so its own ignore rules are repeated here with the
+# prefix.
+
+# Host node_modules must never reach the image: pnpm's store is a symlink farm
+# that COPY would dereference, and the native binaries are built for the host.
+**/node_modules
+
+# Build output, regenerated inside the image.
+bin/
+module/ui/dist
+prusa-connect/bin/
+prusa-connect/frontend/dist
+prusa-connect/docs/dist
+prusa-connect/docs/out
+prusa-connect/docs/.astro
+prusa-connect/extensions/*/ui/dist
+# The core's web app is built by the app-builder stage and copied into place.
+prusa-connect/internal/transport/http/httpapi/appdist/*
+!prusa-connect/internal/transport/http/httpapi/appdist/.gitkeep
+
+# Not part of the build.
+.git
+.github
+.superpowers
+docs/
+prusa-connect/.git
+prusa-connect/.github
+prusa-connect/data/
+prusa-connect/files/
+prusa-connect/storage/
+*.log
+*.db
+*.db-shm
+*.db-wal

@@ -1,0 +1,40 @@
+# Save this file as compose.yaml beside config.docker.yaml from the same release,
+# then start it with: docker compose up -d
+services:
+  prusa-connect:
+    # Pin an exact version, for example :0.1.0, and change it here to upgrade.
+    image: ghcr.io/mjonuschat/prusa-driver-moonraker:latest
+    container_name: prusa_connect
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.docker.yaml:/config/config.yaml:ro
+      # The database and the settings the server writes, and installed modules.
+      - prusa_connect_config:/config/config.d
+      - prusa_connect_storage:/storage
+      - prusa_connect_data:/data
+      - prusa_connect_files:/files
+      # Large uploads pass through /tmp.
+      - prusa_connect_tmp:/tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# Fixed names, so a NAS app that renames the project still finds the same data.
+volumes:
+  prusa_connect_config:
+    name: prusa-connect_prusa_connect_config
+  prusa_connect_storage:
+    name: prusa-connect_prusa_connect_storage
+  prusa_connect_data:
+    name: prusa-connect_prusa_connect_data
+  prusa_connect_files:
+    name: prusa-connect_prusa_connect_files
+  prusa_connect_tmp:
+    name: prusa-connect_prusa_connect_tmp

@@ -1,0 +1,46 @@
+# Mount it at /config/config.yaml, read-only, as docker/compose.yaml does. The
+# server reads it when it starts, so restart the container after an edit. Every
+# key not written here keeps the core's default. Paths without a leading slash
+# are relative to /, the image's working directory, so ./storage is /storage.
+core:
+  api:
+    addr: ":8080"
+
+  # Naming a connector here mounts that one and no other, so the default support
+  # for Prusa printers is declared as well. Remove xbuddy if no Prusa printer
+  # connects to this server.
+  connectors:
+    moonraker:
+      type: moonraker
+      enabled: true
+    xbuddy:
+      type: xbuddy
+      enabled: true
+
+  # The extensions this image carries. They are offered on the Settings,
+  # Extensions page and installed with one click into core.modules, which is
+  # under /config/config.d, the writable volume.
+  modules_local:
+    github.com/mjonuschat/prusa-driver-moonraker: /opt/modules/moonraker
+    github.com/prusa3d/parts: /opt/modules/parts
+    github.com/prusa3d/fleet-stats: /opt/modules/fleet-stats
+    github.com/prusa3d/buddy-debug-logs: /opt/modules/buddy-debug-logs
+    github.com/prusa3d/threemf: /opt/modules/threemf
+    github.com/prusa3d/server-slicing: /opt/modules/server-slicing
+    github.com/prusa3d/materials: /opt/modules/materials
+    github.com/prusa3d/fractal-link: /opt/modules/fractal
+
+  # Back up before you update the image. This is not an official Prusa release,
+  # so Prusa Connect's built-in upgrade and its automatic backups are off. Update
+  # by pulling a newer image.
+  upgrade:
+    enabled: false
+
+resources:
+  storage:
+    local:
+      type: filesystem
+      enabled: true
+      config:
+        # The uploaded print files, on the /storage volume.
+        root: ./storage
