@@ -97,6 +97,55 @@ func TestTheReadingThatEndsAPrintStillNamesIt(t *testing.T) {
 	}
 }
 
+// A print that goes from printing straight to standby, which is what Klipper
+// reports when a cancel macro resets the file before Moonraker samples the
+// cancelled state, still ends with an outcome. Connect would otherwise record
+// the job with none.
+func TestAPrintResetStraightToStandbyIsRecordedAsCancelled(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	held.patchesFrom(reading(`{
+		"print_stats": {"state": "printing", "filename": "bracket.gcode", "print_duration": 61.5, "total_duration": 75}
+	}`, t), 0, time.Unix(0, 0))
+
+	patches := held.patchesFrom(reading(`{
+		"print_stats": {"state": "standby", "filename": "", "print_duration": 0, "total_duration": 0}
+	}`, t), 0, time.Unix(0, 0))
+
+	want := `"` + string(connectorapi.JobCancelled) + `"`
+	found := false
+
+	for _, patch := range patches {
+		if patch.Path == jobOutcomePath {
+			found = true
+
+			if string(patch.Value) != want {
+				t.Errorf("the outcome is %s, and %s was wanted", patch.Value, want)
+			}
+		}
+	}
+
+	if !found {
+		t.Error("the print was reset and no outcome was written")
+	}
+}
+
+// An idle machine that reports standby twice is not a print that ended.
+func TestStandbyAfterStandbyWritesNoOutcome(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	idle := `{"print_stats": {"state": "standby", "filename": "", "print_duration": 0, "total_duration": 0}}`
+	held.patchesFrom(reading(idle, t), 0, time.Unix(0, 0))
+
+	for _, patch := range held.patchesFrom(reading(idle, t), 0, time.Unix(0, 0)) {
+		if patch.Path == jobOutcomePath {
+			t.Error("an idle machine wrote an outcome")
+		}
+	}
+}
+
 // reading turns one JSON object into the shape a Moonraker status frame
 // carries, so a case above reads as the frame the machine sends.
 func reading(body string, t *testing.T) map[string]json.RawMessage {

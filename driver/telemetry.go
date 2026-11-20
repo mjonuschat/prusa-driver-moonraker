@@ -209,6 +209,7 @@ func (p *prints) appendJob(
 		file = p.file
 	}
 
+	previous := p.state
 	p.state, p.file = state, file
 
 	if !slices.Contains(klipperPrintingStates, state) {
@@ -216,7 +217,13 @@ func (p *prints) appendJob(
 			return out
 		}
 
-		if outcome, ended := jobOutcomes[state]; ended {
+		outcome, ended := jobOutcomes[state]
+		if !ended && state == klipperStandby && slices.Contains(klipperPrintingStates, previous) {
+			// Reset straight to standby: see machineState.noteEnd.
+			outcome, ended = jobOutcomes["cancelled"], true
+		}
+
+		if ended {
 			out = appendText(out, jobOutcomePath, outcome)
 		}
 
@@ -322,8 +329,8 @@ func objectFields(status map[string]json.RawMessage) map[string]map[string]json.
 type machineState struct {
 	print, hook string
 	// held is the end word of the last print, kept while Klipper reports
-	// standby. A cancel macro that ends in SDCARD_RESET_FILE, as Klippain's does,
-	// takes print_stats from cancelled straight to standby, and the machine would
+	// standby. A cancel macro that ends in SDCARD_RESET_FILE takes print_stats
+	// from cancelled straight to standby, and the machine would
 	// then read as idle with no sign that a print just ended. It is empty until a
 	// print ends, and a new print, a shutdown or a reconnect clears it.
 	held string
@@ -339,8 +346,9 @@ func (m *machineState) appendState(
 	heard := false
 
 	if value := stringOf(printState); value != "" {
+		previous := m.print
 		m.print, heard = value, true
-		m.noteEnd()
+		m.noteEnd(previous)
 	}
 
 	if value := stringOf(hookState); value != "" {
@@ -383,14 +391,23 @@ func (m *machineState) appendState(
 // klipperStandby is print_stats.state when no print is loaded.
 const klipperStandby = "standby"
 
-// noteEnd updates the held end word for the print state just heard. A print
-// error is not held: ERROR refuses start_print, so holding it would lock the
-// machine out until the driver reconnected.
-func (m *machineState) noteEnd() {
+// noteEnd updates the held end word for the print state just heard, given the
+// one before it. A print error is not held: ERROR refuses start_print, so
+// holding it would lock the machine out until the driver reconnected.
+//
+// A print that goes from printing or paused straight to standby was reset. A
+// finish passes through complete and a failure through error, so this is a
+// cancel whose cancelled state was never sampled: a cancel macro that runs
+// SDCARD_RESET_FILE in the same script moves Klipper on faster than Moonraker
+// samples it, about every 250 ms.
+func (m *machineState) noteEnd(previous string) {
 	switch m.print {
 	case "complete", "cancelled":
 		m.held = stateWords[m.print]
 	case klipperStandby:
+		if slices.Contains(klipperPrintingStates, previous) {
+			m.held = stateWords["cancelled"]
+		}
 	default:
 		m.held = ""
 	}

@@ -63,7 +63,7 @@ Offered when the machine lists the `toolhead` object. Each verb is one `printer.
 
 `/state` follows Klipper's `print_stats.state`: `standby` is IDLE, `printing` PRINTING, `paused` PAUSED, `complete` FINISHED, `cancelled` STOPPED and `error` ERROR. A machine whose `webhooks.state` is not `ready` is ERROR.
 
-After a print ends as `complete` or `cancelled`, the driver keeps reporting FINISHED or STOPPED while Klipper reports `standby`. A cancel macro that ends in `SDCARD_RESET_FILE`, such as Klippain's, takes Klipper from `cancelled` straight to `standby`, and the machine would otherwise read as idle at once. A new print, a shutdown or a reconnect clears it. A print error is not held, because ERROR refuses `start_print`.
+A print that ends is reported as FINISHED or STOPPED until a new print starts, even when Klipper goes back to `standby`. A print that goes from `printing` or `paused` straight to `standby` was reset, so it is STOPPED with the job outcome `cancelled`.
 
 The driver reads Klipper objects by name and publishes them under fixed paths in Connect's state tree. Each role has default object names, matched case-insensitively, and an option in the driver's options that names another object instead.
 

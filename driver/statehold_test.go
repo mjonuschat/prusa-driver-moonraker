@@ -44,3 +44,21 @@ func TestACancelledPrintThatKlipperResetsStaysStopped(t *testing.T) {
 	require.NotContains(t, seen, `"IDLE"`, "the reset must not read as idle")
 	assert.Equal(t, `"PRINTING"`, seen[len(seen)-1])
 }
+
+func TestAPrintResetStraightToStandbyReadsStoppedAndEndsCancelled(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{
+		Objects: moonrakersim.DefaultObjects(), Status: moonrakersim.DefaultStatus(),
+	})
+	session := connect(t, machine)
+
+	machine.Push(map[string]map[string]any{"print_stats": {
+		"state": "printing", "filename": "bracket.gcode", "total_duration": 5.0,
+	}})
+	collect(t, session, map[string]string{"/state": `"PRINTING"`})
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "standby", "filename": ""}})
+
+	collect(t, session, map[string]string{"/state": `"STOPPED"`, "/job/outcome": `"cancelled"`})
+}

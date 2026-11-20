@@ -54,13 +54,31 @@ func TestANewPrintEndsTheHold(t *testing.T) {
 	stateAfter(t, m, "cancelled", "")
 	assert.Equal(t, "STOPPED", stateAfter(t, m, "standby", ""))
 	assert.Equal(t, "PRINTING", stateAfter(t, m, "printing", ""))
-	assert.Equal(t, "IDLE", stateAfter(t, m, "standby", ""), "a print that ends in standby with no end word is idle")
+	assert.Equal(t, "FINISHED", stateAfter(t, m, "complete", ""))
+	assert.Equal(t, "FINISHED", stateAfter(t, m, "standby", ""), "the new print's end replaces the old one")
+}
+
+// Klippain's CANCEL_PRINT runs CANCEL_PRINT_BASE and SDCARD_RESET_FILE in one
+// script, and Moonraker samples Klipper's state about every 250 ms, so the
+// cancelled word never arrives. A print that goes from printing or paused
+// straight to standby can only have been reset: a finish passes through
+// complete and a failure through error.
+func TestAPrintThatGoesStraightToStandbyWasCancelled(t *testing.T) {
+	t.Parallel()
+
+	for _, before := range []string{"printing", "paused"} {
+		m := &machineState{}
+		stateAfter(t, m, before, "")
+		assert.Equal(t, "STOPPED", stateAfter(t, m, "standby", ""), "%s then standby", before)
+		assert.Equal(t, "STOPPED", stateAfter(t, m, "standby", ""))
+	}
 }
 
 func TestAMachineThatNeverPrintedIsIdle(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "IDLE", stateAfter(t, &machineState{}, "standby", ""))
+	assert.Equal(t, "IDLE", stateAfter(t, &machineState{}, "standby", "ready"))
 }
 
 func TestAPrintErrorIsNotHeld(t *testing.T) {
