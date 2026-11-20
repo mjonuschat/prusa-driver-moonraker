@@ -123,6 +123,7 @@ type prints struct {
 	progress      float64
 	progressKnown bool
 	duration      float64
+	durationKnown bool
 	// remaining is the last /job/time_remaining written, valid when
 	// remainingKnown is true.
 	remaining      int64
@@ -153,9 +154,14 @@ func (p *prints) appendRemaining(
 		p.progressKnown = true
 	}
 
-	_ = json.Unmarshal(duration, &p.duration)
+	if json.Unmarshal(duration, &p.duration) == nil {
+		p.durationKnown = true
+	}
 
 	if !slices.Contains(klipperPrintingStates, p.state) || p.estimateFile != p.file || p.estimate <= 0 {
+		return out
+	}
+	if !p.progressKnown && !p.durationKnown {
 		return out
 	}
 
@@ -313,11 +319,11 @@ func (p *prints) appendJob(
 
 	if p.id == "" || changed {
 		p.id = derivedJobID(file, jobStart(stats, eventTime, now))
-		if p.remainingKnown && (p.estimateFile != file || p.estimate <= 0) {
+		if p.remainingKnown {
 			out = append(out, connectorapi.StatePatch{Path: jobTimeRemainingPath, Value: json.RawMessage("null")})
 		}
 		// The last print's progress and remaining time are not this one's.
-		p.progressKnown, p.remainingKnown = false, false
+		p.progressKnown, p.durationKnown, p.remainingKnown = false, false, false
 	}
 
 	return appendText(out, jobIDPath, p.id)

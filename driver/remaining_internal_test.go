@@ -39,13 +39,14 @@ func TestOlderMetadataReplyDoesNotReplaceCurrentEstimate(t *testing.T) {
 
 // remainingIn is the /job/time_remaining value among the patches, or "" for none.
 func remainingIn(patches []connectorapi.StatePatch) string {
+	var value string
 	for _, patch := range patches {
 		if patch.Path == jobTimeRemainingPath {
-			return string(patch.Value)
+			value = string(patch.Value)
 		}
 	}
 
-	return ""
+	return value
 }
 
 func printingFrame(extra string) string {
@@ -138,6 +139,16 @@ func TestANewPrintForgetsTheLastProgress(t *testing.T) {
 		`{"print_stats": {"state": "printing", "filename": "bracket.gcode", "print_duration": 10}}`, t),
 		600, time.Unix(0, 0))
 	assert.Equal(t, "990", remainingIn(again), "the old 90 percent must not shorten the new print")
+}
+
+func TestNewPrintDoesNotUsePreviousDuration(t *testing.T) {
+	held := readerWithEstimate(1000)
+	held.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))
+	held.patchesFrom(reading(`{"print_stats":{"state":"complete"}}`, t), 0, time.Unix(0, 0))
+	opening := held.patchesFrom(reading(`{"print_stats":{"state":"printing"}}`, t), 100, time.Unix(0, 0))
+	require.Equal(t, "null", remainingIn(opening), "the new print has no duration yet")
+	updated := held.patchesFrom(reading(`{"print_stats":{"print_duration":10}}`, t), 101, time.Unix(0, 0))
+	require.Equal(t, "990", remainingIn(updated))
 }
 
 func TestNewFileClearsPreviousRemainingTimeUntilItsEstimateIsKnown(t *testing.T) {
