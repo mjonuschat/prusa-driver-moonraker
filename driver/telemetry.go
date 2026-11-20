@@ -21,18 +21,19 @@ import (
 // has the file's name and no job number, so the name goes under its own path
 // and the id a host needs is derived; see prints.
 const (
-	statePath           = "/state"
-	jobNamePath         = "/job/name"
-	jobPathPath         = connectorapi.JobPathPath
-	jobIDPath           = connectorapi.JobIDPath
-	jobOutcomePath      = connectorapi.JobOutcomePath
-	jobFilamentPath     = connectorapi.JobFilamentUsedPath
-	jobTimePrintingPath = connectorapi.JobTimePrintingPath
-	jobProgressPath     = connectorapi.JobProgressPath
-	bedPath             = "/temperature/bed"
-	bedTargetPath       = "/temperature/bed_target"
-	speedPath           = "/speed"
-	flowPath            = "/flow"
+	statePath            = "/state"
+	jobNamePath          = "/job/name"
+	jobPathPath          = connectorapi.JobPathPath
+	jobIDPath            = connectorapi.JobIDPath
+	jobOutcomePath       = connectorapi.JobOutcomePath
+	jobFilamentPath      = connectorapi.JobFilamentUsedPath
+	jobTimePrintingPath  = connectorapi.JobTimePrintingPath
+	jobProgressPath      = connectorapi.JobProgressPath
+	jobTimeRemainingPath = connectorapi.JobTimeRemainingPath
+	bedPath              = "/temperature/bed"
+	bedTargetPath        = "/temperature/bed_target"
+	speedPath            = "/speed"
+	flowPath             = "/flow"
 )
 
 // jobOutcomes maps Klipper's own terminal words onto the closed set the host
@@ -107,6 +108,71 @@ type prints struct {
 	// state is the last print state heard, because Moonraker sends only what
 	// changed and a notification without one means it is unchanged.
 	state string
+
+	// estimate is the slicer's estimate, in seconds, for estimateFile. It is zero
+	// until the machine has answered the metadata call, and stays zero when the
+	// file carries none. requested is the file that call was made for, so one
+	// file is asked for once.
+	estimate     float64
+	estimateFile string
+	requested    string
+
+	// progress and duration are the last display_status.progress and
+	// print_duration heard, for the same reason as state.
+	progress      float64
+	progressKnown bool
+	duration      float64
+	// remaining is the last /job/time_remaining written, valid when
+	// remainingKnown is true.
+	remaining      int64
+	remainingKnown bool
+}
+
+// wantEstimate is the file whose estimate has not been asked for yet, once.
+func (p *prints) wantEstimate() (string, bool) {
+	if p.id == "" || p.file == "" || p.requested == p.file {
+		return "", false
+	}
+
+	p.requested = p.file
+
+	return p.file, true
+}
+
+// appendRemaining writes how long the print has left, in whole seconds, when it
+// changes. It is the slicer's estimate scaled by how much is left to print.
+// display_status.progress is the slicer's own M73 figure, so it follows the
+// estimate's time weighting. Without a progress reading the estimate less the
+// time printed stands in. Nothing is written until the estimate for this file
+// is known, and not once the print is off the bed.
+func (p *prints) appendRemaining(
+	out []connectorapi.StatePatch, progress, duration json.RawMessage,
+) []connectorapi.StatePatch {
+	if json.Unmarshal(progress, &p.progress) == nil {
+		p.progressKnown = true
+	}
+
+	_ = json.Unmarshal(duration, &p.duration)
+
+	if !slices.Contains(klipperPrintingStates, p.state) || p.estimateFile != p.file || p.estimate <= 0 {
+		return out
+	}
+
+	left := p.estimate - p.duration
+	if p.progressKnown {
+		left = p.estimate * (1 - p.progress)
+	}
+
+	seconds := int64(math.Round(max(left, 0)))
+	if p.remainingKnown && seconds == p.remaining {
+		return out
+	}
+
+	p.remaining, p.remainingKnown = seconds, true
+
+	return append(out, connectorapi.StatePatch{
+		Path: jobTimeRemainingPath, Value: json.RawMessage(strconv.FormatInt(seconds, 10)),
+	})
 }
 
 // jobStartRounding is how coarsely a derived start is rounded. See prints.
@@ -163,6 +229,7 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 		out = appendVerbatim(out, stats["print_duration"], jobTimePrintingPath)
 		out = appendVerbatim(out, stats["filament_used"], jobFilamentPath)
 		out = appendScaled(out, objects[objectDisplayStatus]["progress"], jobProgressPath)
+		out = p.appendRemaining(out, objects[objectDisplayStatus]["progress"], stats["print_duration"])
 	}
 
 	out = r.heads.appendReadings(out, objects)
@@ -242,6 +309,8 @@ func (p *prints) appendJob(
 
 	if p.id == "" || changed {
 		p.id = derivedJobID(file, jobStart(stats, eventTime, now))
+		// The last print's progress and remaining time are not this one's.
+		p.progressKnown, p.remainingKnown = false, false
 	}
 
 	return appendText(out, jobIDPath, p.id)

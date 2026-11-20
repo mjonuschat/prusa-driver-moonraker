@@ -24,6 +24,8 @@ type metadataReply struct {
 	Size       int64       `json:"size"`
 	Modified   float64     `json:"modified"`
 	Thumbnails []thumbnail `json:"thumbnails"`
+	// EstimatedTime is the slicer's estimate of the whole print, in seconds.
+	EstimatedTime float64 `json:"estimated_time"`
 }
 
 // pickThumbnail takes the PNG with the most pixels among those no larger than

@@ -826,6 +826,30 @@ func (s *Session) update(params json.RawMessage) {
 	for _, patch := range s.reader.patchesFrom(status, eventTime, time.Now()) {
 		s.report(patch)
 	}
+
+	s.askEstimate()
+}
+
+// askEstimate asks for the estimate of the file now printing, once. It runs on
+// the reader goroutine and so only writes the request. The reader runs the
+// reply, which is why the estimate needs no lock.
+func (s *Session) askEstimate() {
+	file, wanted := s.reader.prints.wantEstimate()
+	if !wanted {
+		return
+	}
+
+	err := s.send(methodGetMetadata, map[string]any{"filename": file}, func(frame rpcFrame) {
+		var reply metadataReply
+		if frame.Error != nil || json.Unmarshal(frame.Result, &reply) != nil {
+			return
+		}
+
+		s.reader.prints.estimate, s.reader.prints.estimateFile = reply.EstimatedTime, file
+	})
+	if err != nil {
+		s.log.Debug("the estimate of the file printing could not be asked for", "error", err.Error())
+	}
 }
 
 // report queues one patch for the host. It never waits, because the goroutine

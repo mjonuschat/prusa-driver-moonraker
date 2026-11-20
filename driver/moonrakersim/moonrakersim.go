@@ -120,6 +120,9 @@ type Options struct {
 	Thumbnails []Thumbnail
 	// NoThumbnails makes metadata report an empty list. It wins over Thumbnails.
 	NoThumbnails bool
+	// EstimatedTime is the estimated_time, in seconds, that file metadata
+	// reports. Zero leaves the field out, as a file with no estimate does.
+	EstimatedTime float64
 
 	// UploadRefusal answers every upload with the given status and body, before
 	// the request body is read. ClearUploadRefusal stops it.
@@ -195,12 +198,13 @@ type Host struct {
 	filenames      []string
 	eventTime      float64
 
-	requests   map[string][]json.RawMessage
-	tree       map[string]entry
-	free       int64
-	noGcodes   bool
-	readOnly   bool
-	thumbnails []Thumbnail
+	requests      map[string][]json.RawMessage
+	tree          map[string]entry
+	free          int64
+	noGcodes      bool
+	readOnly      bool
+	thumbnails    []Thumbnail
+	estimatedTime float64
 
 	uploadRefusal    *UploadRefusal
 	uploadDropAfter  int64

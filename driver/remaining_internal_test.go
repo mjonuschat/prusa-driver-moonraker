@@ -1,0 +1,131 @@
+package moonraker
+
+import (
+	"testing"
+	"time"
+
+	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// remainingIn is the /job/time_remaining value among the patches, or "" for none.
+func remainingIn(patches []connectorapi.StatePatch) string {
+	for _, patch := range patches {
+		if patch.Path == jobTimeRemainingPath {
+			return string(patch.Value)
+		}
+	}
+
+	return ""
+}
+
+func printingFrame(extra string) string {
+	return `{"print_stats": {"state": "printing", "filename": "bracket.gcode", "print_duration": 400}` + extra + `}`
+}
+
+// readerWithEstimate is a reader that has been told how long bracket.gcode takes.
+func readerWithEstimate(seconds float64) *reader {
+	held := &reader{}
+	held.prints.estimate = seconds
+	held.prints.estimateFile = "bracket.gcode"
+
+	return held
+}
+
+func TestTimeRemainingIsTheEstimateScaledByProgress(t *testing.T) {
+	t.Parallel()
+
+	held := readerWithEstimate(28064)
+	patches := held.patchesFrom(reading(
+		printingFrame(`, "display_status": {"progress": 0.01165}`), t), 0, time.Unix(0, 0))
+
+	assert.Equal(t, "27737", remainingIn(patches))
+}
+
+func TestTimeRemainingFallsBackToTheEstimateLessThePrintDuration(t *testing.T) {
+	t.Parallel()
+
+	held := readerWithEstimate(1000)
+	patches := held.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))
+
+	assert.Equal(t, "600", remainingIn(patches))
+}
+
+func TestTimeRemainingNeedsAnEstimateForThisFile(t *testing.T) {
+	t.Parallel()
+
+	none := &reader{}
+	assert.Empty(t, remainingIn(none.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))))
+
+	other := readerWithEstimate(1000)
+	other.prints.estimateFile = "another.gcode"
+	assert.Empty(t, remainingIn(other.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))))
+}
+
+func TestTimeRemainingNeverGoesBelowZero(t *testing.T) {
+	t.Parallel()
+
+	done := readerWithEstimate(1000)
+	assert.Equal(t, "0", remainingIn(done.patchesFrom(reading(
+		printingFrame(`, "display_status": {"progress": 1.0}`), t), 0, time.Unix(0, 0))))
+
+	over := readerWithEstimate(300)
+	assert.Equal(t, "0", remainingIn(over.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))))
+}
+
+func TestTimeRemainingIsWrittenOnlyWhenItChanges(t *testing.T) {
+	t.Parallel()
+
+	held := readerWithEstimate(1000)
+	frame := printingFrame(`, "display_status": {"progress": 0.5}`)
+
+	assert.Equal(t, "500", remainingIn(held.patchesFrom(reading(frame, t), 0, time.Unix(0, 0))))
+	assert.Empty(t, remainingIn(held.patchesFrom(reading(frame, t), 0, time.Unix(0, 0))))
+	assert.Equal(t, "250", remainingIn(held.patchesFrom(reading(
+		`{"display_status": {"progress": 0.75}}`, t), 0, time.Unix(0, 0))), "a frame without print_stats still counts")
+}
+
+func TestTimeRemainingStopsWhenThePrintEnds(t *testing.T) {
+	t.Parallel()
+
+	held := readerWithEstimate(1000)
+	held.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))
+
+	ended := held.patchesFrom(reading(
+		`{"print_stats": {"state": "complete", "filename": "bracket.gcode", "print_duration": 900}}`, t),
+		0, time.Unix(0, 0))
+	assert.Empty(t, remainingIn(ended))
+}
+
+func TestANewPrintForgetsTheLastProgress(t *testing.T) {
+	t.Parallel()
+
+	held := readerWithEstimate(1000)
+	held.patchesFrom(reading(printingFrame(`, "display_status": {"progress": 0.9}`), t), 0, time.Unix(0, 0))
+	held.patchesFrom(reading(`{"print_stats": {"state": "complete", "filename": "bracket.gcode"}}`, t), 0, time.Unix(0, 0))
+	held.patchesFrom(reading(`{"print_stats": {"state": "standby", "filename": ""}}`, t), 0, time.Unix(0, 0))
+
+	again := held.patchesFrom(reading(
+		`{"print_stats": {"state": "printing", "filename": "bracket.gcode", "print_duration": 10}}`, t),
+		600, time.Unix(0, 0))
+	assert.Equal(t, "990", remainingIn(again), "the old 90 percent must not shorten the new print")
+}
+
+func TestTheEstimateIsAskedForOncePerFile(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+
+	_, wanted := held.prints.wantEstimate()
+	assert.False(t, wanted, "nothing is printing")
+
+	held.patchesFrom(reading(printingFrame(""), t), 0, time.Unix(0, 0))
+
+	file, wanted := held.prints.wantEstimate()
+	require.True(t, wanted)
+	assert.Equal(t, "bracket.gcode", file)
+
+	_, wanted = held.prints.wantEstimate()
+	assert.False(t, wanted, "it is not asked for again")
+}

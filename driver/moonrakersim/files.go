@@ -80,6 +80,8 @@ func (h *Host) initFiles(opts Options) {
 		h.free = defaultFreeSpace
 	}
 
+	h.estimatedTime = opts.EstimatedTime
+
 	switch {
 	case opts.NoThumbnails:
 		h.thumbnails = nil
@@ -346,7 +348,12 @@ func (h *Host) metadata(filename string) (any, error) {
 		})
 	}
 
-	return map[string]any{"filename": filename, "size": node.size, "modified": node.modified, "thumbnails": listed}, nil
+	reply := map[string]any{"filename": filename, "size": node.size, "modified": node.modified, "thumbnails": listed}
+	if h.estimatedTime > 0 {
+		reply["estimated_time"] = h.estimatedTime
+	}
+
+	return reply, nil
 }
 
 // serveThumbnail serves the Body of the thumbnail whose RelativePath matches
