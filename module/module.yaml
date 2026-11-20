@@ -1,0 +1,45 @@
+# The manifest for a module that is one browser bundle and nothing else. There
+# is no process here, so there is no contract_major, no permissions block and
+# no OpenAPI fragment.
+#
+# `prusa-connect module add` reads it out of the release, writes one
+# declaration, and copies it into the bundle directory it installs, because
+# that is where the host reads the ui block from. The digest covers it there,
+# so the manifest the host reads is the one the install recorded.
+#
+# The namespace is absent on purpose. The host derives it from the repository
+# address the operator installed, so no module can name another module's
+# address. For this module that is com.github.aux.mjonuschat.prusa-driver-moonraker.
+
+name: machines
+# The one kind this module is declared under: a directory of files the host
+# verifies against a digest and serves, and never runs.
+kind: asset
+version: 0.1.0
+# The licence this module is released under. The marketplace shows it and
+# refuses a release without one. An SPDX identifier is the usual form.
+license: OCL v1.1 + Micro v1 + NoSaaS v1 + SWAtt v1
+# What a marketplace card prints beside the name: the title a person reads,
+# one sentence about this module, and who answers for it. The install copies
+# them into the declaration, so `GET /api/v1/resources` carries them for an
+# installed module. Write your own sentence here, a title if the name alone reads badly, and your name or
+# your team's beside it.
+title: Moonraker
+summary: Add a Klipper machine behind Moonraker to Prusa Connect by its address.
+codeowner: mjonuschat
+
+ui:
+  # The built bundle's entry, relative to the bundle root. The host serves it
+  # at /api/v1/modules/com.github.aux.mjonuschat.prusa-driver-moonraker/ui/ui/index.js.
+  entry: ui/index.js
+  # The range of @prusa/connect-ui this bundle was built against. The app
+  # refuses a bundle its own version falls outside of.
+  library: ">=0.1.0 <1.0.0"
+  contributes:
+    # The whole of what this bundle may register. A registration the block
+    # does not declare is refused at run time and the app drops this module.
+    # Every entry here has one `host.register` call behind it in
+    # ui/src/index.ts, and the generator wrote the pair from one answer.
+    settings:
+      - id: machines
+        title: Moonraker

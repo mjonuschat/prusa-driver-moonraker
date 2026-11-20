@@ -1,0 +1,53 @@
+{
+  "_meta.language": "English",
+  "_meta.note": "This module's own texts. The host reads this file from locales/en.json beside the bundle's entry and merges it under the module's namespace. Copy it to <tag>.json to translate; a key you leave out falls back to the line here.",
+
+  "machines.settings.title": "Moonraker",
+  "machines.settings.body": "Add a Klipper machine that runs Moonraker. This server connects to it, so the machine needs no settings file.",
+
+  "machines.steps.label": "Steps to add a machine",
+  "machines.steps.nav": "Step navigation",
+  "machines.steps.position": "Step {current} of {total}: {step}",
+  "machines.steps.address": "Address",
+  "machines.steps.address.caption": "Where Moonraker answers",
+  "machines.steps.details": "Details",
+  "machines.steps.details.caption": "Name and identity",
+  "machines.steps.waiting": "Connect",
+  "machines.steps.waiting.caption": "This server dials the machine",
+  "machines.steps.connected": "Connected",
+  "machines.steps.connected.caption": "Ready to print",
+  "machines.steps.back": "Back",
+  "machines.steps.next": "Next",
+
+  "machines.address.title": "Where is the machine?",
+  "machines.address.lead": "Give the address of the machine's Moonraker.",
+  "machines.address.label": "Address",
+  "machines.address.help": "A host name or IP address, with a port if it is not 7125. A URL works too.",
+  "machines.address.invalid": "Enter a host, host:port or a URL.",
+
+  "machines.details.title": "Name the machine",
+  "machines.details.lead": "The defaults are fine for most machines.",
+  "machines.details.address": "Address: {address}",
+  "machines.details.add": "Add machine",
+  "machines.name.label": "Name",
+  "machines.name.help": "Lower case letters, digits and dashes. It names this connection, and the printer takes its name from the machine.",
+  "machines.name.invalid": "Use lower case letters, digits and dashes, up to 63 characters.",
+  "machines.unit.label": "Identity",
+  "machines.unit.help": "Keeps the printer the same one if its address changes. Defaults to the name.",
+  "machines.model.label": "Model",
+  "machines.model.help": "Optional. Klipper does not report a model, so the host name is shown when this is empty.",
+  "machines.vendor.label": "Vendor",
+  "machines.vendor.help": "Optional. Shown as Klipper when empty.",
+  "machines.connector.label": "Connector",
+  "machines.connector.help": "The name of the connector in the server configuration whose type is moonraker.",
+
+  "machines.waiting.title": "Connecting",
+  "machines.waiting.lead": "Added {name}. Waiting for it to answer.",
+  "machines.waiting.slow.title": "It has not connected yet",
+  "machines.waiting.slow.body": "Check that Moonraker answers at {address}, and that the server configuration has a connector named {connector} with type moonraker. A Moonraker that needs an API key is not supported yet.",
+
+  "machines.connected.title": "Connected",
+  "machines.connected.lead": "{name} is connected.",
+  "machines.connected.open": "Open the printer",
+  "machines.connected.another": "Add another"
+}
