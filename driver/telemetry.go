@@ -113,9 +113,10 @@ type prints struct {
 	// until the machine has answered the metadata call, and stays zero when the
 	// file carries none. requested is the file that call was made for, so one
 	// file is asked for once.
-	estimate     float64
-	estimateFile string
-	requested    string
+	estimate           float64
+	estimateFile       string
+	requested          string
+	estimateGeneration uint64
 
 	// progress and duration are the last display_status.progress and
 	// print_duration heard, for the same reason as state.

@@ -899,7 +899,13 @@ func (s *Session) askEstimate() {
 		return
 	}
 
+	s.reader.prints.estimateGeneration++
+	generation := s.reader.prints.estimateGeneration
 	err := s.send(methodGetMetadata, map[string]any{"filename": file}, func(frame rpcFrame) {
+		if s.reader.prints.estimateGeneration != generation || s.reader.prints.file != file {
+			return
+		}
+
 		var reply metadataReply
 		if frame.Error != nil || json.Unmarshal(frame.Result, &reply) != nil {
 			return

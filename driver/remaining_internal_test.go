@@ -1,13 +1,41 @@
 package moonraker
 
 import (
+	"encoding/json"
+	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOlderMetadataReplyDoesNotReplaceCurrentEstimate(t *testing.T) {
+	host, err := moonrakersim.Start(t.Context(), moonrakersim.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = host.Close() })
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+host.Address()+"/websocket", nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	s := newSession(conn, time.Second, liveness{}.orShipping(), slog.New(slog.DiscardHandler))
+	t.Cleanup(s.stopSpool)
+
+	s.reader.prints.id, s.reader.prints.file = "a", "a.gcode"
+	s.askEstimate()
+	first := s.nextID.Load()
+	s.reader.prints.id, s.reader.prints.file = "b", "b.gcode"
+	s.askEstimate()
+	second := s.nextID.Load()
+
+	require.True(t, s.answerRequest(second, rpcFrame{Result: json.RawMessage(`{"estimated_time":200}`)}))
+	require.True(t, s.answerRequest(first, rpcFrame{Result: json.RawMessage(`{"estimated_time":100}`)}))
+	require.Equal(t, "b.gcode", s.reader.prints.estimateFile)
+	require.Equal(t, 200.0, s.reader.prints.estimate)
+}
 
 // remainingIn is the /job/time_remaining value among the patches, or "" for none.
 func remainingIn(patches []connectorapi.StatePatch) string {
