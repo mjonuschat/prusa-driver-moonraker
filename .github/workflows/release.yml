@@ -1,0 +1,298 @@
+name: Release
+
+# A tag v<version> starts a release: verify the tag, run the same checks as CI,
+# build the composed server for linux amd64, arm64 and armv7, pack the Moonraker
+# page, publish the GitHub release, then publish the container image.
+#
+# Only a push of a tag publishes. A manual run of this workflow, on a branch or on
+# a tag, verifies and builds and stops.
+on:
+  push:
+    tags:
+      # A glob, not a regex. verify-release.sh holds the strict check.
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      prerelease: ${{ steps.verify.outputs.prerelease }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the release
+        id: verify
+        env:
+          MODE: ${{ github.event_name == 'push' && 'tag' || 'dispatch' }}
+          TAG: ${{ github.ref_name }}
+        run: sh scripts/verify-release.sh "$MODE" "$TAG" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI
+    needs: [ verify ]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  # A fresh web app for the release, with no cache restored.
+  web-app:
+    name: Web app
+    needs: [ verify ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: prusa-connect/packages/typescript/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: prusa-connect/.nvmrc
+          package-manager-cache: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build the web app
+        run: make -C prusa-connect embed-app
+
+      - name: Check the web app is there
+        run: test -f prusa-connect/internal/transport/http/httpapi/appdist/index.html
+
+      - name: Upload the web app
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: web-app
+          path: prusa-connect/internal/transport/http/httpapi/appdist
+          retention-days: 7
+
+  dist:
+    name: Server (${{ matrix.arch }})
+    needs: [ verify, web-app ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, goarch: amd64, goarm: "" }
+          - { arch: arm64, goarch: arm64, goarm: "" }
+          - { arch: armv7, goarch: arm, goarm: "7" }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Download the web app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: web-app
+          path: prusa-connect/internal/transport/http/httpapi/appdist
+
+      - name: Build the server
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          GOARCH_TARGET: ${{ matrix.goarch }}
+          GOARM_TARGET: ${{ matrix.goarm }}
+        run: |
+          set -eu
+          mkdir -p dist
+          sh scripts/build-server.sh linux "$GOARCH_TARGET" "$GOARM_TARGET" "$VERSION" "dist/prusa-connect-moonraker_${VERSION}_linux_${ARCH}"
+
+      - name: Check the binary is static
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: file "dist/prusa-connect-moonraker_${VERSION}_linux_${ARCH}" | grep -q 'statically linked'
+
+      - name: Upload the server
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: server-${{ matrix.arch }}
+          path: dist/prusa-connect-moonraker_*_linux_${{ matrix.arch }}
+          retention-days: 7
+
+  # The Moonraker page, packed the way `prusa-connect module add -from` reads it.
+  module:
+    name: Moonraker page
+    needs: [ verify ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: module/ui/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: prusa-connect/.nvmrc
+          package-manager-cache: false
+
+      - name: Build the core packages the page links
+        run: make -C prusa-connect client-sdk-build client-ui-build
+
+      - name: Build the page
+        working-directory: module/ui
+        run: pnpm install --frozen-lockfile && pnpm run build
+
+      - name: Pack the bundle
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -eu
+          mkdir -p out
+          # Packed by entry name. An archive with a "./" entry is refused by module add.
+          (cd module/ui/dist && tar -czf "$GITHUB_WORKSPACE/out/moonraker-module_${VERSION}.tar.gz" -- *)
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: module
+          path: out/moonraker-module_*.tar.gz
+          retention-days: 7
+
+  publish:
+    name: Publish release
+    needs: [ verify, ci, dist, module ]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the servers
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: server-*
+          merge-multiple: true
+          path: assets
+
+      - name: Download the bundle
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: module
+          path: assets
+
+      - name: Check exactly the expected assets are there
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -eu
+          {
+            for arch in amd64 arm64 armv7; do
+              echo "prusa-connect-moonraker_${VERSION}_linux_${arch}"
+            done
+            echo "moonraker-module_${VERSION}.tar.gz"
+          } | sort > "$RUNNER_TEMP/expected"
+          (cd assets && printf '%s\n' * | sort) > "$RUNNER_TEMP/found"
+          diff "$RUNNER_TEMP/expected" "$RUNNER_TEMP/found"
+
+      # The compose file is pinned to this release's image.
+      - name: Attach the deployment files
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -eu
+          cp docker/config.yaml assets/config.docker.yaml
+          sed "s|prusa-driver-moonraker:latest|prusa-driver-moonraker:${VERSION}|" docker/compose.yaml > assets/compose.yaml
+
+      - name: Write SHA256SUMS
+        run: |
+          set -eu
+          cd assets
+          # Written outside the directory first, so the sums do not list themselves.
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+
+      - name: Install git-cliff
+        env:
+          GIT_CLIFF_VERSION: 2.14.2
+          GIT_CLIFF_SHA256: 24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4
+        run: |
+          set -eu
+          archive="$RUNNER_TEMP/git-cliff.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${GIT_CLIFF_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          mkdir -p "$HOME/.local/bin"
+          cp "$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" "$HOME/.local/bin/git-cliff"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Write the release notes
+        run: git cliff --config cliff.toml --latest --strip header --output RELEASE_NOTES.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -eu
+          if [ "$PRERELEASE" = true ]; then
+            set -- --prerelease
+          else
+            set --
+          fi
+          gh release create "$TAG" assets/* --verify-tag --title "$TAG" --notes-file RELEASE_NOTES.md "$@"
+
+  image:
+    name: Container image
+    needs: [ verify, publish ]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/container-image.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
