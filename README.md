@@ -8,6 +8,24 @@ A Prusa Connect printer driver for Klipper machines behind Moonraker.
 - `send_gcode` takes G, M and T words only.
 - `force_gcode` is an emergency stop only (M112).
 
+## Motion
+
+Offered when the machine lists the `toolhead` object. Each verb is one `printer.gcode.script` call.
+
+| Verb | Gcode |
+| --- | --- |
+| `core.command.move` (`x`, `y`, `feedrate`) | `SAVE_GCODE_STATE NAME=CONNECT_JOG`, `G91`, `G1 X.. Y.. F..`, `RESTORE_GCODE_STATE NAME=CONNECT_JOG` |
+| `core.command.move_z` (`distance`, `feedrate`) | the same with `G1 Z.. F..` |
+| `core.command.home` (`axis`, optional) | `G28`, or `G28 X Y Z` for the axes named |
+| `core.command.disable_steppers` | `M84` |
+
+- Feedrate is in mm/min. Its ceiling is the machine's `max_velocity` (`move`) or `max_z_velocity` (`move_z`) times 60. When the configuration cannot be read the ceilings are 6000 and 600.
+- `x`, `y` and `distance` are relative steps in mm, bounded by plus or minus the axis span (plus or minus 1000 when the span is unknown).
+- Motion is refused while PRINTING and in ERROR, and accepted in IDLE, PAUSED, FINISHED and STOPPED. It is refused until the first state is known.
+- Klipper's own refusals are returned with its message. After a refused jog the driver sends `RESTORE_GCODE_STATE NAME=CONNECT_JOG` so the machine does not stay in relative mode. The state is never `PAUSE_STATE`.
+- A jog and its restore run as one unit. A second motion verb waits for the first.
+- Z+ is Klipper's Z+. The driver sends `distance` as given and never inverts it.
+
 ## Files
 
 - One storage, `gcodes`, is shown. There is no other root.

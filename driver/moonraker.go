@@ -126,7 +126,8 @@ func doc() extension.Doc {
 			"heatbreak_fan_object and filament_object name the object behind the chamber, bed fans, part " +
 			"fan, heatbreak fan and filament sensor roles, and none turns a role off. extra_sensors and " +
 			"extra_fans list further objects by comma. When Moonraker runs the spoolman component, the active " +
-			"spool's material, colour, full weight and consumed weight are published for head 0.",
+			"spool's material, colour, full weight and consumed weight are published for head 0. A machine with a toolhead is offered move, move_z, home " +
+			"and disable_steppers, with feedrates bounded by its own velocity limits.",
 		Version:   "0.1.0",
 		Contract:  connectorapi.Contract,
 		Stability: extension.StabilityExperimental,
