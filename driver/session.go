@@ -74,6 +74,9 @@ type Session struct {
 	// levelling is the gcode command that levels this machine, or empty when
 	// it lists no levelling object. It is set during the handshake.
 	levelling string
+	// filament is the macro each filament verb runs. It is set during the
+	// handshake.
+	filament filamentMacros
 
 	conn    *websocket.Conn
 	timeout time.Duration
@@ -258,6 +261,8 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	for _, patch := range opened {
 		s.noteState(patch)
 	}
+
+	s.filament = filamentMacrosOf(listed.Objects)
 
 	var both bool
 
@@ -525,6 +530,15 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		}
 
 		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
+	case VerbLoadFilament, VerbUnloadFilament:
+		script := s.filament.scriptFor(cmd.Verb)
+		if script == "" {
+			return "", nil, connectorapi.CapabilityNotSupported.
+				New("the printer has no macro for that").
+				With(fault.StringParam("verb", cmd.Verb.String()))
+		}
+
+		return methodGcodeScript, map[string]any{"script": script}, nil
 	case VerbCancelObject, VerbUncancelObject:
 		script, objectErr := s.objectCommand(cmd)
 		if objectErr != nil {

@@ -171,6 +171,7 @@ func probe(
 
 	carryTuning(claimed, resolved, available)
 	carryObjects(claimed, resolved, available)
+	carryFilament(claimed, resolved, filamentMacrosOf(available))
 
 	if command, _ := levelCommandOf(available); command != "" {
 		carry(claimed, resolved, VerbMeshBedLeveling)

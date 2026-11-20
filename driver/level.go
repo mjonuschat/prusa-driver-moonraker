@@ -48,7 +48,7 @@ func waitFor(verb connectorapi.Capability, base time.Duration) time.Duration {
 	switch verb {
 	case VerbHome:
 		return max(base, homeWait)
-	case VerbMeshBedLeveling:
+	case VerbMeshBedLeveling, VerbLoadFilament, VerbUnloadFilament:
 		return max(base, levelWait)
 	default:
 		return base

@@ -46,6 +46,9 @@ func states() connectorapi.StateSet {
 	tuning := []connectorapi.Capability{VerbSetSpeed, VerbSetFlow}
 	// An object is cancelled or brought back while its print is on the bed.
 	objects := []connectorapi.Capability{VerbCancelObject, VerbUncancelObject}
+	// Loading and unloading filament is held back while a print is running. It
+	// is allowed paused, which is where a runout is dealt with.
+	filament := []connectorapi.Capability{VerbLoadFilament, VerbUnloadFilament}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -56,13 +59,13 @@ func states() connectorapi.StateSet {
 
 	return connectorapi.StateSet{
 		States: []connectorapi.DeviceState{
-			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
+			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
 				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files, tuning, objects)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning, objects)},
-			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
-			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning, objects, filament)},
+			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
+			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},
 		},
 		Transitions: []connectorapi.Transition{

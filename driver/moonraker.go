@@ -297,6 +297,7 @@ func (d *Driver) Baseline() connectorapi.Set {
 	maps.Copy(set, motionBaseline())
 	maps.Copy(set, tuningBaseline())
 	maps.Copy(set, objectsBaseline())
+	maps.Copy(set, filamentBaseline())
 
 	return set
 }
