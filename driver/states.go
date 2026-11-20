@@ -43,7 +43,7 @@ func states() connectorapi.StateSet {
 	levelling := []connectorapi.Capability{VerbMeshBedLeveling}
 	// A speed or flow override changes how the print runs, so it is accepted
 	// beside a print, and refused in ERROR.
-	tuning := []connectorapi.Capability{VerbSetSpeed, VerbSetFlow}
+	tuning := []connectorapi.Capability{VerbSetSpeed, VerbSetFlow, VerbSetChamberLED}
 	// An object is cancelled or brought back while its print is on the bed.
 	objects := []connectorapi.Capability{VerbCancelObject, VerbUncancelObject}
 	// Loading and unloading filament is held back while a print is running. It

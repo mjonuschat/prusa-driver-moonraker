@@ -3,6 +3,7 @@ package moonraker
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
@@ -115,12 +116,45 @@ func (g *gauges) appendReadings(
 	out = g.appendLayers(out, objects[objectPrintStats], onBed)
 	out = g.appendExtras(out, objects)
 	out = g.appendRunout(out, objects[g.roles.filament], printState)
+	out = g.appendLight(out, objects)
 
 	out = g.appendFan(out, objects, g.roles.partFan, "print", active)
 	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak", active)
 	out = g.appendFan(out, objects, g.roles.bedFan, "bed", active)
 
 	return out
+}
+
+// appendLight writes the chamber light's level as a percentage. An output pin
+// reports it as value, and an LED strip as the colours of its LEDs.
+func (g *gauges) appendLight(
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage,
+) []connectorapi.StatePatch {
+	object := g.roles.light
+	if object == "" {
+		return out
+	}
+
+	fields := objects[object]
+	if len(fields) == 0 {
+		return out
+	}
+
+	if strings.HasPrefix(strings.ToLower(object), "output_pin ") {
+		return g.number(out, fields, "value", lightPath, true)
+	}
+
+	fraction, ok := lightPercent(fields["color_data"])
+	if !ok {
+		return out
+	}
+
+	scaled := appendScaled(nil, json.RawMessage(strconv.FormatFloat(fraction, 'f', -1, 64)), lightPath)
+	if len(scaled) == 0 {
+		return out
+	}
+
+	return g.put(out, lightPath, scaled[0].Value)
 }
 
 func (g *gauges) appendChamber(

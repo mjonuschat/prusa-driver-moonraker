@@ -77,6 +77,9 @@ type Session struct {
 	// filament is the macro each filament verb runs. It is set during the
 	// handshake.
 	filament filamentMacros
+	// light is how the chamber light is set, once the handshake has read the
+	// configuration.
+	light lightControl
 
 	conn    *websocket.Conn
 	timeout time.Duration
@@ -232,6 +235,10 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 
 	heaters := heaterBounds(dumped, s.roles.chamber)
 
+	if s.roles.light != "" {
+		s.light = lightControlOf(s.roles.light, dumped)
+	}
+
 	// Storage is read before subscribing: callSync drops notifications while it
 	// waits, so no status update may be in flight yet.
 	gcodes, err := s.readStorage(ctx)
@@ -277,7 +284,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	}
 
 	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped),
-		s.roles.filament != "", offered)
+		probeFeatures{dialogs: s.roles.filament != "", light: s.roles.light != ""}, offered)
 
 	return offered.Intersect(s.probe), nil
 }
@@ -535,6 +542,13 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		}
 
 		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
+	case VerbSetChamberLED:
+		script, lightErr := lightScript(s.light, cmd.Args)
+		if lightErr != nil {
+			return "", nil, lightErr
+		}
+
+		return methodGcodeScript, map[string]any{"script": script}, nil
 	case VerbDialogAction:
 		method, equivalent, dialogErr := s.dialogCommand(cmd)
 		if dialogErr != nil {

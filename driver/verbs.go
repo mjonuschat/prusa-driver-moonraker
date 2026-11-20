@@ -106,6 +106,15 @@ func temperatureArgument(ceiling float64) connectorapi.Value {
 	}
 }
 
+// probeFeatures is what the machine's resolved roles allow beyond the objects it
+// lists.
+type probeFeatures struct {
+	// dialogs is whether a filament sensor can raise the runout dialog.
+	dialogs bool
+	// light is whether the machine has a chamber light.
+	light bool
+}
+
 // probe is what this machine says it can do, as a tier that narrows the two
 // above it.
 //
@@ -115,7 +124,7 @@ func temperatureArgument(ceiling float64) connectorapi.Value {
 // the heater bounds this function sets on purpose.
 func probe(
 	available []string, heaters map[string]heaterConfig, extruders int, gcodes gcodesState, chamber chamberRole,
-	limits motionLimits, dialogs bool, resolved connectorapi.Set,
+	limits motionLimits, features probeFeatures, resolved connectorapi.Set,
 ) connectorapi.Set {
 	claimed := connectorapi.Set{}
 
@@ -171,7 +180,8 @@ func probe(
 
 	carryTuning(claimed, resolved, available)
 	carryObjects(claimed, resolved, available)
-	carryDialog(claimed, resolved, dialogs)
+	carryDialog(claimed, resolved, features.dialogs)
+	carryChamberLight(claimed, resolved, features.light)
 	carryFilament(claimed, resolved, filamentMacrosOf(available))
 
 	if slices.Contains(available, objectExtruder) {
