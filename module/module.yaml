@@ -15,7 +15,7 @@ name: machines
 # The one kind this module is declared under: a directory of files the host
 # verifies against a digest and serves, and never runs.
 kind: asset
-version: 0.1.0-rc.1
+version: 0.1.0
 # The licence this module is released under. The marketplace shows it and
 # refuses a release without one. An SPDX identifier is the usual form.
 license: OCL v1.1 + Micro v1 + NoSaaS v1 + SWAtt v1
