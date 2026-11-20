@@ -658,6 +658,13 @@ func (s *Session) callWithin(
 // arrives. It is the handshake's call, and it is used before any goroutine owns
 // the reads.
 func (s *Session) callSync(ctx context.Context, method string, params any, into any) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("moonraker: %s: %w", method, err)
+	}
+
+	stopCancel := context.AfterFunc(ctx, s.hangUp)
+	defer stopCancel()
+
 	id := s.nextID.Add(1)
 
 	if err := s.write(rpcRequest{JSONRPC: jsonrpcVersion, Method: method, Params: params, ID: id}); err != nil {
@@ -680,6 +687,10 @@ func (s *Session) callSync(ctx context.Context, method string, params any, into 
 
 		var frame rpcFrame
 		if err := s.conn.ReadJSON(&frame); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("moonraker: %s: %w", method, ctxErr)
+			}
+
 			return fmt.Errorf("%w: %s: %w", ErrUnreachable, method, err)
 		}
 

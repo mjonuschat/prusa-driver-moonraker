@@ -1,14 +1,40 @@
 package moonraker_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/mjonuschat/prusa-driver-moonraker/driver"
 	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi/connectorapitest"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCancelInterruptsSilentHandshake(t *testing.T) {
+	host := startMachine(t, moonrakersim.Options{})
+	host.Silence("printer.info")
+	d := moonraker.NewDriver(5 * time.Second)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := d.Connect(ctx, connectorapi.Endpoint{Address: host.Address()}, d.Baseline())
+		result <- err
+	}()
+
+	require.Eventually(t, func() bool { return len(host.CallTimes("printer.info")) > 0 }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancel did not interrupt the handshake")
+	}
+}
 
 // TestContract runs the published conformance suite against this dialect.
 //
