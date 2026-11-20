@@ -167,6 +167,10 @@ jobs:
         working-directory: module/ui
         run: pnpm run lint && pnpm run format:check
 
+      - name: Test the page
+        working-directory: module/ui
+        run: pnpm run test
+
       # svelte-check also reports type errors inside the core's own package
       # sources, which this module does not own. The script accepts only those,
       # and fails on a crash or on any other error.
