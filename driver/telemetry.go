@@ -118,6 +118,7 @@ type reader struct {
 	prints  prints
 	heads   heads
 	machine machineState
+	gauges  gauges
 }
 
 // patchesFrom turns one reading of the Klipper objects into patches, in a fixed
@@ -158,6 +159,8 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 	}
 
 	out = r.heads.appendReadings(out, objects)
+
+	out = r.gauges.appendReadings(out, objects)
 
 	bed := objects[objectHeaterBed]
 	out = appendVerbatim(out, bed["temperature"], bedPath)

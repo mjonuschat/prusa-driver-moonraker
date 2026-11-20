@@ -199,6 +199,8 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		}
 	}
 
+	s.reader.gauges.roles = s.roles
+
 	dumped, err := s.readConfig(ctx, listed.Objects)
 	if err != nil {
 		return nil, err
