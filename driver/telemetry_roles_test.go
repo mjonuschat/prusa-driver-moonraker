@@ -59,3 +59,22 @@ func TestUkuReportsItsChamberAndBedFan(t *testing.T) {
 		"/fan/print/rpm":              "3158.5",
 	})
 }
+
+func TestLeleReportsItsLayers(t *testing.T) {
+	t.Parallel()
+
+	status := moonrakersim.DefaultStatus()
+	status["print_stats"] = map[string]any{
+		"state": "printing", "filename": "bracket.gcode", "print_duration": 12.0,
+		"info": map[string]any{"current_layer": 19, "total_layer": 57},
+	}
+
+	machine := startMachine(t, moonrakersim.Options{Status: status})
+
+	driver := moonraker.NewDriver(0)
+	session, err := driver.Connect(t.Context(), connectorapi.Endpoint{Address: machine.Address()}, driver.Baseline())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	collect(t, session, map[string]string{"/job/layer": "19", "/job/layer_count": "57"})
+}

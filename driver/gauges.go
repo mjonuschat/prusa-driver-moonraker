@@ -12,6 +12,8 @@ const (
 	chamberPath       = "/temperature/chamber"
 	chamberTargetPath = "/temperature/chamber_target"
 	fanPathPrefix     = "/fan/"
+	layerPath         = "/job/layer"
+	layerCountPath    = "/job/layer_count"
 )
 
 // gauges turns the chamber and fan objects into patches and remembers which
@@ -102,12 +104,15 @@ func (g *gauges) number(
 	return g.put(out, path, scaled[0].Value)
 }
 
-// appendReadings writes the chamber and the fans. active is the index of the
-// active head, or -1 when none is known.
+// appendReadings writes the chamber, the fans, the layers and the extras.
+// active is the index of the active head, or -1 when none is known. onBed says
+// whether a print is on the bed, which is when layers are reported.
 func (g *gauges) appendReadings(
-	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, active int,
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, active int, onBed bool,
 ) []connectorapi.StatePatch {
 	out = g.appendChamber(out, objects)
+	out = g.appendLayers(out, objects[objectPrintStats], onBed)
+	out = g.appendExtras(out, objects)
 
 	out = g.appendFan(out, objects, g.roles.partFan, "print", active)
 	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak", active)
@@ -150,13 +155,7 @@ func (g *gauges) appendFan(
 	fields := objects[object]
 
 	if len(fields) > 0 {
-		speedKey := "speed"
-		if strings.HasPrefix(strings.ToLower(object), "heater_generic ") {
-			speedKey = "power"
-		}
-
-		out = g.number(out, fields, speedKey, fanPathPrefix+role+"/speed", true)
-		out = g.number(out, fields, "rpm", fanPathPrefix+role+"/rpm", false)
+		out = g.fanReadings(out, fields, object, fanPathPrefix+role)
 	}
 
 	member, ok := mirrored[role]
@@ -206,4 +205,69 @@ func (g *gauges) moveMirror(
 	g.mirror[role] = active
 
 	return g.put(out, connectorapi.ToolPath(connectorapi.HeadID(active), member), rpm)
+}
+
+// dropLayers removes both layer paths.
+func (g *gauges) dropLayers(out []connectorapi.StatePatch) []connectorapi.StatePatch {
+	out = g.drop(out, layerPath)
+
+	return g.drop(out, layerCountPath)
+}
+
+func (g *gauges) fanReadings(
+	out []connectorapi.StatePatch, fields map[string]json.RawMessage, object, base string,
+) []connectorapi.StatePatch {
+	speedKey := "speed"
+	if strings.HasPrefix(strings.ToLower(object), "heater_generic ") {
+		speedKey = "power"
+	}
+
+	out = g.number(out, fields, speedKey, base+"/speed", true)
+
+	return g.number(out, fields, "rpm", base+"/rpm", false)
+}
+
+func (g *gauges) appendExtras(
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage,
+) []connectorapi.StatePatch {
+	for _, object := range g.roles.extraSensors {
+		if fields, ok := objects[object]; ok {
+			out = g.number(out, fields, "temperature", "/sensors/"+heaterName(object)+"/temperature", false)
+		}
+	}
+
+	for _, object := range g.roles.extraFans {
+		if fields, ok := objects[object]; ok {
+			out = g.fanReadings(out, fields, object, "/fans/"+heaterName(object))
+		}
+	}
+
+	return out
+}
+
+// appendLayers writes the layer numbers from print_stats.info while a print is
+// on the bed. Moonraker sends only what changed, so an info that is omitted,
+// or an object that omits a key, leaves the last value. An info that is null
+// has no values to inspect and removes both paths.
+func (g *gauges) appendLayers(
+	out []connectorapi.StatePatch, stats map[string]json.RawMessage, onBed bool,
+) []connectorapi.StatePatch {
+	raw, present := stats["info"]
+
+	if !onBed {
+		return g.dropLayers(out)
+	}
+
+	if !present {
+		return out
+	}
+
+	var info map[string]json.RawMessage
+	if json.Unmarshal(raw, &info) != nil || info == nil {
+		return g.dropLayers(out)
+	}
+
+	out = g.number(out, info, "current_layer", layerPath, false)
+
+	return g.number(out, info, "total_layer", layerCountPath, false)
 }

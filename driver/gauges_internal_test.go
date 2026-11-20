@@ -20,7 +20,7 @@ func runOn(t *testing.T, g *gauges, active int, body string) map[string]string {
 	t.Helper()
 
 	out := map[string]string{}
-	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), active) {
+	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), active, false) {
 		out[p.Path] = string(p.Value)
 	}
 
@@ -184,4 +184,110 @@ func TestTheBedFanHasNoMirror(t *testing.T) {
 	g := &gauges{roles: headRoles()}
 	expect(t, runOn(t, g, 0, `{"heater_generic bed_fans": {"power": 0.5, "rpm": 900}}`),
 		map[string]string{"/fan/bed/speed": "50", "/fan/bed/rpm": "900"})
+}
+
+func layersOn(t *testing.T, g *gauges, onBed bool, body string) map[string]string {
+	t.Helper()
+
+	out := map[string]string{}
+	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), -1, onBed) {
+		out[p.Path] = string(p.Value)
+	}
+
+	return out
+}
+
+const lele = `{"print_stats": {"info": {"current_layer": 19, "total_layer": 57}}}`
+
+func TestLayersAreReportedOnlyWhileAPrintIsOnTheBed(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	expect(t, layersOn(t, g, true, lele), map[string]string{layerPath: "19", layerCountPath: "57"})
+	expect(t, layersOn(t, &gauges{}, false, lele), map[string]string{})
+	expect(t, layersOn(t, &gauges{}, true, `{"print_stats": {"info": null}}`), map[string]string{})
+}
+
+func TestLayersAreRemovedWhenThePrintLeavesTheBed(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	layersOn(t, g, true, lele)
+	expect(t, layersOn(t, g, false, `{"print_stats": {"state": "standby"}}`),
+		map[string]string{layerPath: "null", layerCountPath: "null"})
+}
+
+func TestANullLayerAfterANumberRemovesIt(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	layersOn(t, g, true, lele)
+	expect(t, layersOn(t, g, true, `{"print_stats": {"info": {"current_layer": null}}}`),
+		map[string]string{layerPath: "null"})
+}
+
+func TestANullInfoObjectRemovesBothLayerPaths(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	layersOn(t, g, true, lele)
+	expect(t, layersOn(t, g, true, `{"print_stats": {"info": null}}`),
+		map[string]string{layerPath: "null", layerCountPath: "null"})
+}
+
+func TestAnOmittedInfoKeepsTheLayers(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	layersOn(t, g, true, lele)
+	expect(t, layersOn(t, g, true, `{"print_stats": {"print_duration": 5}}`), map[string]string{})
+}
+
+func TestAnInfoThatOmitsOneKeyKeepsThatLayer(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{}
+	layersOn(t, g, true, lele)
+	expect(t, layersOn(t, g, true, `{"print_stats": {"info": {"current_layer": 20}}}`),
+		map[string]string{layerPath: "20"})
+}
+
+func extraRoles() roles {
+	return roles{
+		extraSensors: []string{"temperature_sensor Electrical_Cabinet"},
+		extraFans:    []string{"controller_fan controller_fan"},
+	}
+}
+
+func TestAnExtraSensorPublishesUnderItsOwnName(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: extraRoles()}
+	expect(t, run(t, g, `{"temperature_sensor Electrical_Cabinet": {"temperature": 31.2}}`),
+		map[string]string{"/sensors/Electrical_Cabinet/temperature": "31.2"})
+}
+
+func TestAnExtraFanPublishesSpeedAndRPMUnderItsOwnName(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: extraRoles()}
+	expect(t, run(t, g, `{"controller_fan controller_fan": {"speed": 0.5, "rpm": 3158.5}}`),
+		map[string]string{"/fans/controller_fan/speed": "50", "/fans/controller_fan/rpm": "3158.5"})
+}
+
+func TestAnExtraThatTheMachineDoesNotListPublishesNothing(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: extraRoles()}
+	expect(t, run(t, g, `{"temperature_sensor Other": {"temperature": 1}, "fan_generic x": {"speed": 1}}`),
+		map[string]string{})
+}
+
+func TestANullExtraSensorTemperatureOrFanSpeedRemovesItsPath(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: extraRoles()}
+	run(t, g, `{"temperature_sensor Electrical_Cabinet": {"temperature": 31.2}, "controller_fan controller_fan": {"speed": 1}}`)
+	expect(t, run(t, g, `{"temperature_sensor Electrical_Cabinet": {"temperature": null}, "controller_fan controller_fan": {"speed": null}}`),
+		map[string]string{"/sensors/Electrical_Cabinet/temperature": "null", "/fans/controller_fan/speed": "null"})
 }
