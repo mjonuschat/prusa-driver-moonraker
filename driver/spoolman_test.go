@@ -306,3 +306,35 @@ func TestClosingTheSessionWhileASettleIsPending(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	require.Len(t, machine.Calls(), calls)
 }
+
+func TestSpoolmanComingBackRefreshesTheSpool(t *testing.T) {
+	t.Parallel()
+
+	machine := spoolMachine(t, 0, 108)
+	session := connect(t, machine)
+	collect(t, session, absValues())
+
+	machine.Refuse(callProxy, "spoolman is down")
+	machine.SetActiveSpool(2)
+	collect(t, session, clearedValues())
+
+	machine.Allow(callProxy)
+	machine.SetSpoolmanConnected(true)
+
+	collect(t, session, plaValues("FF0000"))
+}
+
+func TestSpoolmanGoingAwayChangesNothing(t *testing.T) {
+	t.Parallel()
+
+	machine := spoolMachine(t, 0, 108)
+	session := connect(t, machine)
+	collect(t, session, absValues())
+
+	calls := len(machine.Calls())
+
+	machine.SetSpoolmanConnected(false)
+	firstPatches(t, session)
+
+	require.Len(t, machine.Calls(), calls)
+}

@@ -52,4 +52,29 @@ Limit: an extra sensor or fan removed from the options disappears from Connect's
 
 A Moonraker that requires authentication is not supported yet. Connecting to one fails with `moonraker: authorization required`.
 
+## Spoolman
+
+When Moonraker runs the `spoolman` component, the driver publishes the active spool under head 0, so Connect shows the loaded material instead of "No filament". The driver asks Moonraker, never Spoolman, and has no option for it.
+
+| Path member | Value |
+| --- | --- |
+| `MaterialAbbreviation`, `MaterialType` | the spool's `filament.material` |
+| `MaterialColor` | `#` plus `filament.color_hex`, only when it is a valid colour; a spool with several colours has none |
+| `MaterialFullWeight` | `initial_weight`, in grams |
+| `ConsumedWeight` | `used_weight`, in grams |
+
+A value Spoolman does not report, or reports in a form the driver cannot use, has its path removed and is never written as zero or empty. No active spool, a failed or unanswered call, and a Spoolman that is down also remove all five paths, so a stale spool is not left behind.
+
+The spool is read at three moments:
+
+1. At session start.
+2. When the active spool changes (`notify_active_spool_set`).
+3. When Moonraker's link to Spoolman comes back (`notify_spoolman_status_changed`).
+
+It is also read after a print ends. Moonraker reports extrusion to Spoolman every `sync_rate` seconds (read from `server.config`, 5 by default), so the driver waits one `sync_rate` plus one second. It then asks `server.spoolman.status` until `pending_reports` is empty, for at most 10 seconds, and reads the spool. A print ends when `/state` moves from PRINTING or PAUSED to FINISHED, STOPPED or ERROR. A newer trigger cancels a pending refresh.
+
+A machine whose Moonraker has no `spoolman` section, or answers method-not-found, gets no Spoolman call for the rest of the session.
+
+Limits: head 0 only, one spool, no live weight during a print (the weight updates after the print), and no writes to Spoolman, including setting the active spool.
+
 Built on Prusa Connect by Prusa Research a.s. (https://www.prusa3d.com), licensed under OCL v1.1 + Micro v1 + NoSaaS v1 + SWAtt v1. See LICENSE.

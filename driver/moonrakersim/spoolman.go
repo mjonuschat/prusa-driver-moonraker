@@ -16,6 +16,7 @@ const (
 	methodSpoolStatus    = "server.spoolman.status"
 	methodSpoolProxy     = "server.spoolman.proxy"
 	notifyActiveSpoolSet = "notify_active_spool_set"
+	notifySpoolStatus    = "notify_spoolman_status_changed"
 )
 
 // defaultSyncRate is the seconds Moonraker waits before reporting usage to
@@ -175,6 +176,22 @@ func (h *Host) SetActiveSpool(id int) {
 		"jsonrpc": jsonrpcVersion,
 		"method":  notifyActiveSpoolSet,
 		"params":  []any{map[string]any{"spool_id": spoolID}},
+	}
+
+	for _, held := range open {
+		_ = held.write(frame)
+	}
+}
+
+func (h *Host) SetSpoolmanConnected(connected bool) {
+	h.mu.Lock()
+	open := slices.Clone(h.conns)
+	h.mu.Unlock()
+
+	frame := map[string]any{
+		"jsonrpc": jsonrpcVersion,
+		"method":  notifySpoolStatus,
+		"params":  []any{map[string]any{"spoolman_connected": connected}},
 	}
 
 	for _, held := range open {

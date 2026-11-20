@@ -721,6 +721,8 @@ func (s *Session) dispatch(data []byte) {
 		s.filesChanged(frame.Params)
 	case notifyActiveSpoolSet:
 		s.activeSpoolSet(frame.Params)
+	case notifySpoolmanStatusChanged:
+		s.spoolmanStatusChanged(frame.Params)
 	}
 }
 

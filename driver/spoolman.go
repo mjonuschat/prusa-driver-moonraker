@@ -454,6 +454,25 @@ func (s *Session) activeSpoolSet(params json.RawMessage) {
 	s.adoptSpool(carried[0].ID)
 }
 
+// spoolmanStatusChanged refreshes the spool when Moonraker's link to Spoolman
+// comes back. A link that goes away changes nothing, because the next call fails and
+// removes the paths.
+func (s *Session) spoolmanStatusChanged(params json.RawMessage) {
+	var carried []struct {
+		Connected bool `json:"spoolman_connected"`
+	}
+
+	if json.Unmarshal(params, &carried) != nil || len(carried) == 0 {
+		s.refused.Add(1)
+
+		return
+	}
+
+	if carried[0].Connected {
+		s.refreshSpool()
+	}
+}
+
 func printEnded(previous, now string) bool {
 	switch previous {
 	case string(statePrinting), string(statePaused):

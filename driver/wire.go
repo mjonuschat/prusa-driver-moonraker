@@ -35,6 +35,13 @@ const (
 	methodSpoolProxy   = "server.spoolman.proxy"
 )
 
+// notifySpoolmanStatusChanged is sent when Moonraker's link to Spoolman goes
+// up or down. Moonraker's spoolman component registers the event
+// "spoolman:spoolman_status_changed" and sends {"spoolman_connected": bool}
+// as the first param. The "spoolman:" prefix becomes "notify_" on the wire, as
+// it does for the active-spool event below.
+const notifySpoolmanStatusChanged = "notify_spoolman_status_changed"
+
 // notifyActiveSpoolSet is the notification Moonraker sends when the active
 // Spoolman spool changes. Its first param carries spool_id, a number or null.
 const notifyActiveSpoolSet = "notify_active_spool_set"
