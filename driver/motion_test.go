@@ -1,6 +1,8 @@
 package moonraker_test
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,43 @@ import (
 	moonraker "github.com/mjonuschat/prusa-driver-moonraker/driver"
 	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 )
+
+func TestCancelledSentJogRestoresGCodeState(t *testing.T) {
+	machine, session := readyMachine(t)
+	machine.Silence("printer.gcode.script")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := session.Do(ctx, motionCommands()[0])
+		done <- err
+	}()
+	require.Eventually(t, func() bool { return len(machine.Requests("printer.gcode.script")) == 1 }, time.Second, time.Millisecond)
+	machine.Unsilence("printer.gcode.script")
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled jog did not finish")
+	}
+	requests := machine.Requests("printer.gcode.script")
+	require.Len(t, requests, 2)
+	var restored struct {
+		Script string `json:"script"`
+	}
+	require.NoError(t, json.Unmarshal(requests[1], &restored))
+	require.Equal(t, restoreLine, restored.Script)
+}
+
+func TestCancelledUnsentJogDoesNotRestoreGCodeState(t *testing.T) {
+	machine, session := readyMachine(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := session.Do(ctx, motionCommands()[0])
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, machine.Requests("printer.gcode.script"))
+}
 
 var motionKeys = []connectorapi.Capability{
 	moonraker.VerbMove, moonraker.ArgMoveFeedrate, moonraker.ArgMoveX, moonraker.ArgMoveY,

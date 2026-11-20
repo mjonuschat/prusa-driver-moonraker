@@ -472,8 +472,11 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 		return connectorapi.Result{}, err
 	}
 
-	result, refusal, err := s.callWithin(ctx, method, params, waitFor(cmd.Verb, s.timeout))
+	result, refusal, sent, err := s.callWithinSent(ctx, method, params, waitFor(cmd.Verb, s.timeout))
 	if err != nil {
+		if sent && isJog(cmd.Verb) {
+			s.restoreJog()
+		}
 		// Klipper restarts by hanging up, so the lost connection is the answer.
 		if restarts(cmd.Verb) && errors.Is(err, ErrSessionEnded) {
 			return connectorapi.Result{OK: true}, nil
@@ -486,13 +489,20 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 		if isJog(cmd.Verb) {
 			// Klipper skips the restore after an error, which would leave the
 			// machine in relative mode. This is best effort, so the outcome is ignored.
-			_, _, _ = s.call(ctx, methodGcodeScript, map[string]any{"script": restoreJogScript})
+			s.restoreJog()
 		}
 
 		return connectorapi.Result{OK: false, MachineReason: refusal.Message}, nil
 	}
 
 	return connectorapi.Result{OK: true, Raw: result}, nil
+}
+
+// restoreJog is best effort and must outlive a cancelled command context.
+func (s *Session) restoreJog() {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	_, _, _ = s.call(ctx, methodGcodeScript, map[string]any{"script": restoreJogScript})
 }
 
 // refuseInState is the guard on a verb the machine's last reported state does
@@ -630,11 +640,18 @@ func (s *Session) call(
 func (s *Session) callWithin(
 	ctx context.Context, method string, params any, wait time.Duration,
 ) (result json.RawMessage, refusal *rpcError, err error) {
+	result, refusal, _, err = s.callWithinSent(ctx, method, params, wait)
+	return result, refusal, err
+}
+
+func (s *Session) callWithinSent(
+	ctx context.Context, method string, params any, wait time.Duration,
+) (result json.RawMessage, refusal *rpcError, sent bool, err error) {
 	// Before the write and not only around the wait. A caller who has already
 	// given up must not move the machine, and a pause the caller cancelled is
 	// still a pause once it is on the wire.
 	if err = ctx.Err(); err != nil {
-		return nil, nil, fmt.Errorf("moonraker: %s: %w", method, err)
+		return nil, nil, false, fmt.Errorf("moonraker: %s: %w", method, err)
 	}
 
 	id := s.nextID.Add(1)
@@ -644,19 +661,20 @@ func (s *Session) callWithin(
 	defer s.pending.Delete(id)
 
 	if err = s.writeContext(ctx, rpcRequest{JSONRPC: jsonrpcVersion, Method: method, Params: params, ID: id}); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
+	sent = true
 
 	callCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 
 	select {
 	case frame := <-replies:
-		return frame.Result, frame.Error, nil
+		return frame.Result, frame.Error, true, nil
 	case <-s.done:
-		return nil, nil, fmt.Errorf("%w: %s was never answered", ErrSessionEnded, method)
+		return nil, nil, true, fmt.Errorf("%w: %s was never answered", ErrSessionEnded, method)
 	case <-callCtx.Done():
-		return nil, nil, fmt.Errorf("moonraker: %s: %w", method, callCtx.Err())
+		return nil, nil, true, fmt.Errorf("moonraker: %s: %w", method, callCtx.Err())
 	}
 }
 
