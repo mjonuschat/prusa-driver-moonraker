@@ -23,6 +23,7 @@ import (
 const (
 	statePath           = "/state"
 	jobNamePath         = "/job/name"
+	jobPathPath         = connectorapi.JobPathPath
 	jobIDPath           = connectorapi.JobIDPath
 	jobOutcomePath      = connectorapi.JobOutcomePath
 	jobFilamentPath     = connectorapi.JobFilamentUsedPath
@@ -153,6 +154,12 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 
 	if before != "" || p.id != "" {
 		out = appendVerbatim(out, stats["filename"], jobNamePath)
+		// The host names a print from /job/path and shows the last segment of
+		// it. It is storage-prefixed like every path List returns, because the
+		// host fetches the print's thumbnail through it.
+		if p.file != "" {
+			out = appendText(out, jobPathPath, gcodesRoot+"/"+p.file)
+		}
 		out = appendVerbatim(out, stats["print_duration"], jobTimePrintingPath)
 		out = appendVerbatim(out, stats["filament_used"], jobFilamentPath)
 		out = appendScaled(out, objects[objectDisplayStatus]["progress"], jobProgressPath)

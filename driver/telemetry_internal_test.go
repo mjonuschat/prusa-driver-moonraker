@@ -396,3 +396,68 @@ func TestAPrintStatsReadingWithoutWebhooksKeepsTheHookState(t *testing.T) {
 		t.Errorf("/state = %s, want \"ERROR\"", got)
 	}
 }
+
+// The host names a print from /job/path, and takes its display name from the
+// last segment of it. A print written only at /job/name has no name in
+// Connect, and the Now tab reads "No print running" while it prints.
+func TestAPrintOnTheBedWritesItsFileAtTheJobPath(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	patches := held.patchesFrom(reading(`{
+		"print_stats": {
+			"state": "printing", "filename": "Voron/Hank/Accent Parts/bezel.gcode",
+			"print_duration": 1, "total_duration": 2
+		}
+	}`, t), 0, time.Unix(0, 0))
+
+	var got string
+
+	for _, patch := range patches {
+		if patch.Path == jobPathPath {
+			got = string(patch.Value)
+		}
+	}
+
+	// The core addresses a file by its storage, as List does, and fetches the
+	// print's thumbnail by this path. Klipper's own name has no storage in it.
+	if got != `"gcodes/Voron/Hank/Accent Parts/bezel.gcode"` {
+		t.Errorf("/job/path = %s, and the file under the gcodes storage was wanted", got)
+	}
+}
+
+func TestTheReadingThatEndsAPrintStillWritesTheJobPath(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	held.patchesFrom(reading(`{
+		"print_stats": {"state": "printing", "filename": "a.gcode", "print_duration": 1, "total_duration": 2}
+	}`, t), 0, time.Unix(0, 0))
+
+	patches := held.patchesFrom(reading(`{
+		"print_stats": {"state": "complete", "filename": "a.gcode", "print_duration": 9, "total_duration": 10}
+	}`, t), 0, time.Unix(0, 0))
+
+	for _, patch := range patches {
+		if patch.Path == jobPathPath {
+			return
+		}
+	}
+
+	t.Error("the print ended and /job/path was not written with the outcome")
+}
+
+func TestAnIdleMachineWritesNoJobPath(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	patches := held.patchesFrom(reading(`{
+		"print_stats": {"state": "standby", "filename": "", "print_duration": 0, "total_duration": 0}
+	}`, t), 0, time.Unix(0, 0))
+
+	for _, patch := range patches {
+		if patch.Path == jobPathPath {
+			t.Errorf("an idle machine wrote /job/path = %s", patch.Value)
+		}
+	}
+}
