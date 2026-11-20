@@ -26,6 +26,15 @@ Offered when the machine lists the `toolhead` object. Each verb is one `printer.
 - A jog and its restore run as one unit. A second motion verb waits for the first.
 - Z+ is Klipper's Z+. The driver sends `distance` as given and never inverts it.
 
+## Speed and flow
+
+`core.command.set_speed` (`speed`) and `core.command.set_flow` (`flow`) are offered when the machine lists `gcode_move`. They run `M220 S<percent>` and `M221 S<percent>`.
+
+- The argument is a number in percent, from 20 to 999, the range Prusa's own firmware verbs declare. A decimal such as 97.5 is sent as given, in plain decimal. The Controls tab sends whole numbers between 50 and 200.
+- Accepted in IDLE, PRINTING, PAUSED, FINISHED and STOPPED. Refused in ERROR.
+- They take the same lock as the motion verbs, so a change cannot fall between a jog and its restore.
+- The speed and flow chips read `gcode_move`, so they follow the new value.
+
 ## Level bed
 
 `core.command.mesh_bed_leveling` is offered when the machine lists `z_tilt` or `quad_gantry_level`. It takes no arguments and runs one `printer.gcode.script` call.

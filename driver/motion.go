@@ -337,7 +337,7 @@ func isMotion(verb connectorapi.Capability) bool {
 // gcode. force_gcode is left out so an emergency stop never waits.
 func takesMotionLock(verb connectorapi.Capability) bool {
 	switch verb {
-	case VerbPausePrint, VerbResumePrint, VerbStopPrint, VerbStartPrint, VerbSendGCode:
+	case VerbPausePrint, VerbResumePrint, VerbStopPrint, VerbStartPrint, VerbSendGCode, VerbSetSpeed, VerbSetFlow:
 		return true
 	default:
 		return isMotion(verb)

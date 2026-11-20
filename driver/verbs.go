@@ -169,6 +169,8 @@ func probe(
 		carryMotion(claimed, resolved, limits)
 	}
 
+	carryTuning(claimed, resolved, available)
+
 	if command, _ := levelCommandOf(available); command != "" {
 		carry(claimed, resolved, VerbMeshBedLeveling)
 	}
@@ -324,6 +326,10 @@ func gcodeFor(cmd connectorapi.Command, chamber string) (string, error) {
 		return homeScript(cmd.Args)
 	case VerbDisableSteppers:
 		return disableSteppersScript, nil
+	case VerbSetSpeed:
+		return speedScript(cmd.Args)
+	case VerbSetFlow:
+		return flowScript(cmd.Args)
 	default:
 		return "", fmt.Errorf("moonraker: %s reaches no call and no gcode line", cmd.Verb)
 	}
