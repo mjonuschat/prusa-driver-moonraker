@@ -24,7 +24,6 @@ const (
 	methodRoots           = "server.files.roots"
 	methodGetDirectory    = "server.files.get_directory"
 	methodGetMetadata     = "server.files.metadata"
-	methodMetadata        = "server.files.metadata"
 	methodPostDirectory   = "server.files.post_directory"
 	methodDeleteDirectory = "server.files.delete_directory"
 	methodDeleteFile      = "server.files.delete_file"
@@ -48,8 +47,6 @@ const notifyActiveSpoolSet = "notify_active_spool_set"
 
 // notifyFilelistChanged is the notification Moonraker sends when a file or
 // folder under a root changes.
-//
-//nolint:unused // read by the notification handler in a later task.
 const notifyFilelistChanged = "notify_filelist_changed"
 
 // gcodesRoot is the Moonraker file root this driver exposes as its one storage.
