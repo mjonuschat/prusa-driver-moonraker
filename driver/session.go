@@ -59,6 +59,24 @@ func (l liveness) orShipping() liveness {
 	return l
 }
 
+// cancellableLock serializes work while allowing a caller to abandon the wait.
+type cancellableLock chan struct{}
+
+func (l cancellableLock) lock(ctx context.Context) error {
+	select {
+	case l <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-l
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (l cancellableLock) unlock() { <-l }
+
 // Session is one connected Klipper machine.
 //
 // It has two lives. During the identity exchange the goroutine inside Connect
@@ -69,7 +87,7 @@ type Session struct {
 	// motion serialises the motion verbs and the verbs that change or depend
 	// on gcode state, so a jog and its recovery restore run as one unit and a
 	// resume cannot run between them.
-	motion sync.Mutex
+	motion cancellableLock
 
 	// levelling is the gcode command that levels this machine, or empty when
 	// it lists no levelling object. It is set during the handshake.
@@ -137,7 +155,7 @@ type Session struct {
 
 	nextID atomic.Uint64
 
-	writing sync.Mutex
+	writing cancellableLock
 
 	pending sync.Map
 
@@ -180,6 +198,8 @@ func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log 
 		timeout:       timeout,
 		live:          live,
 		log:           log,
+		motion:        make(cancellableLock, 1),
+		writing:       make(cancellableLock, 1),
 		patches:       make(chan connectorapi.StatePatch, patchBacklog),
 		changes:       make(chan connectorapi.FileChange, filesChangedDepth),
 		done:          make(chan struct{}),
@@ -459,8 +479,10 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 	}
 
 	if takesMotionLock(cmd.Verb) {
-		s.motion.Lock()
-		defer s.motion.Unlock()
+		if err := s.motion.lock(ctx); err != nil {
+			return connectorapi.Result{}, fmt.Errorf("moonraker: %s: %w", cmd.Verb, err)
+		}
+		defer s.motion.unlock()
 	}
 
 	if err := s.refuseInState(cmd.Verb); err != nil {
@@ -741,8 +763,10 @@ func (s *Session) write(request rpcRequest) error {
 }
 
 func (s *Session) writeContext(ctx context.Context, request rpcRequest) error {
-	s.writing.Lock()
-	defer s.writing.Unlock()
+	if err := s.writing.lock(ctx); err != nil {
+		return fmt.Errorf("moonraker: %s: %w", request.Method, err)
+	}
+	defer s.writing.unlock()
 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("moonraker: %s: %w", request.Method, err)
@@ -1057,8 +1081,10 @@ func (s *Session) keepalive() {
 // ping writes one control frame. It takes the write lock because a control
 // frame and a request must not interleave on one connection.
 func (s *Session) ping() error {
-	s.writing.Lock()
-	defer s.writing.Unlock()
+	if err := s.writing.lock(context.Background()); err != nil {
+		return fmt.Errorf("%w: send a ping: %w", ErrUnreachable, err)
+	}
+	defer s.writing.unlock()
 
 	if err := s.conn.WriteControl(
 		websocket.PingMessage, nil, time.Now().Add(s.live.pingTimeout),

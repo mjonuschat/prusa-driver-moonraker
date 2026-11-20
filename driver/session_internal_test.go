@@ -22,7 +22,8 @@ func TestCancelledCallWaitingForWriterIsNotSent(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	s.writing.Lock()
+	require.NoError(t, s.writing.lock(context.Background()))
+	defer s.writing.unlock()
 	finished := make(chan error, 1)
 	go func() {
 		_, _, callErr := s.call(ctx, methodGcodeScript, map[string]any{"script": "G28"})
@@ -34,7 +35,33 @@ func TestCancelledCallWaitingForWriterIsNotSent(t *testing.T) {
 		return found
 	}, time.Second, time.Millisecond)
 	cancel()
-	s.writing.Unlock()
-	require.ErrorIs(t, <-finished, context.Canceled)
+	select {
+	case err := <-finished:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("cancelled call remained blocked on the write lock")
+	}
 	require.Never(t, func() bool { return len(host.CallTimes(methodGcodeScript)) != 0 }, 100*time.Millisecond, time.Millisecond)
+}
+
+func TestCancelledCommandDoesNotWaitForMotionLock(t *testing.T) {
+	d := NewDriver(time.Second)
+	s := newSession(nil, time.Second, liveness{}, nil)
+	s.caps = d.Baseline()
+	require.NoError(t, s.motion.lock(context.Background()))
+	defer s.motion.unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() {
+		_, err := s.Do(ctx, connectorapi.Command{Verb: VerbHome})
+		finished <- err
+	}()
+	cancel()
+	select {
+	case err := <-finished:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("cancelled command remained blocked on the motion lock")
+	}
 }
