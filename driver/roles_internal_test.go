@@ -1,9 +1,17 @@
 package moonraker
 
 import (
+	"context"
+	"log/slog"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 )
 
 var (
@@ -147,4 +155,93 @@ func TestObjectsListsEachRoleObjectOnce(t *testing.T) {
 		"heater_chamber", "heater_generic bed_fans", "fan", "heater_fan hotend_fan",
 		"filament_switch_sensor runout_sensor", "heater_bed", "extruder",
 	}, r.objects())
+}
+
+func roleMachine(t *testing.T) *moonrakersim.Host {
+	t.Helper()
+
+	host, err := moonrakersim.Start(t.Context(), moonrakersim.Options{
+		Objects: append(moonrakersim.DefaultObjects(), "temperature_sensor Chamber", "fan", "heater_fan hotend_fan", "heaters"),
+		Status: func() map[string]map[string]any {
+			status := moonrakersim.DefaultStatus()
+			status["temperature_sensor Chamber"] = map[string]any{"temperature": 26.4}
+			status["fan"] = map[string]any{"speed": 0.5, "rpm": nil}
+			status["heater_fan hotend_fan"] = map[string]any{"speed": 0.0}
+			status["heaters"] = map[string]any{"available_heaters": []string{"extruder", "heater_bed"}}
+
+			return status
+		}(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = host.Close() })
+
+	return host
+}
+
+func TestHandshakeAsksForTheRoleObjects(t *testing.T) {
+	t.Parallel()
+
+	host := roleMachine(t)
+
+	conn, _, err := websocket.DefaultDialer.DialContext(t.Context(), "ws://"+host.Address()+"/websocket", nil)
+	require.NoError(t, err)
+
+	session := newSession(conn, 5*time.Second, liveness{}.orShipping(), slog.New(slog.DiscardHandler))
+	t.Cleanup(session.hangUp)
+
+	_, err = session.handshake(t.Context(), connectorapi.Set{})
+	require.NoError(t, err)
+	require.Contains(t, session.asked, "fan")
+	require.Contains(t, session.asked, "temperature_sensor Chamber")
+}
+
+type captured struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (c *captured) Enabled(context.Context, slog.Level) bool { return true }
+func (c *captured) WithAttrs([]slog.Attr) slog.Handler       { return c }
+func (c *captured) WithGroup(string) slog.Handler            { return c }
+func (c *captured) Handle(_ context.Context, r slog.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, r)
+
+	return nil
+}
+
+func TestAnUnlistedOverrideIsLoggedWithItsOption(t *testing.T) {
+	t.Parallel()
+
+	host := roleMachine(t)
+	handler := &captured{}
+
+	driver := newDriver(5*time.Second, liveness{})
+	driver.log = slog.New(handler)
+
+	session, err := driver.Connect(t.Context(),
+		connectorapi.Endpoint{Address: host.Address(), Options: map[string]string{"chamber_object": "nope"}},
+		driver.Baseline())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	var warnings []map[string]string
+
+	for _, record := range handler.records {
+		if record.Level != slog.LevelWarn {
+			continue
+		}
+
+		attrs := map[string]string{}
+		record.Attrs(func(a slog.Attr) bool { attrs[a.Key] = a.Value.String(); return true })
+		warnings = append(warnings, attrs)
+	}
+
+	require.Len(t, warnings, 1)
+	require.Equal(t, "chamber_object", warnings[0]["option"])
+	require.Equal(t, "nope", warnings[0]["value"])
 }

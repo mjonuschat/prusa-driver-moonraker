@@ -121,7 +121,10 @@ func doc() extension.Doc {
 			"is, and subscribes to the Klipper objects it reads telemetry from. What the machine reports " +
 			"under printer.objects.list narrows what is offered, so a machine with no pause_resume " +
 			"section is not offered pause. The endpoint options vendor, model, serial and unit_uid say " +
-			"what Klipper itself does not report.",
+			"what Klipper itself does not report. The options chamber_object, bed_fans_object, part_fan_object, " +
+			"heatbreak_fan_object and filament_object name the object behind the chamber, bed fans, part " +
+			"fan, heatbreak fan and filament sensor roles, and none turns a role off. extra_sensors and " +
+			"extra_fans list further objects by comma.",
 		Version:   "0.1.0",
 		Contract:  connectorapi.Contract,
 		Stability: extension.StabilityExperimental,
@@ -131,6 +134,41 @@ func doc() extension.Doc {
 				Type:    extension.OptionDuration,
 				Default: "10s",
 				Summary: "How long one call to the machine may take before it is abandoned.",
+			},
+			{
+				Key:     "chamber_object",
+				Type:    extension.OptionString,
+				Summary: "The Klipper object that reports the chamber, or none to report no chamber.",
+			},
+			{
+				Key:     "bed_fans_object",
+				Type:    extension.OptionString,
+				Summary: "The Klipper object behind the bed fans, or none.",
+			},
+			{
+				Key:     "part_fan_object",
+				Type:    extension.OptionString,
+				Summary: "The Klipper object behind the part cooling fan, or none.",
+			},
+			{
+				Key:     "heatbreak_fan_object",
+				Type:    extension.OptionString,
+				Summary: "The Klipper object behind the heatbreak fan, or none.",
+			},
+			{
+				Key:     "filament_object",
+				Type:    extension.OptionString,
+				Summary: "The Klipper object of the filament sensor, or none.",
+			},
+			{
+				Key:     "extra_sensors",
+				Type:    extension.OptionString,
+				Summary: "Comma-separated temperature sensor objects to report as well.",
+			},
+			{
+				Key:     "extra_fans",
+				Type:    extension.OptionString,
+				Summary: "Comma-separated fan objects to report as well.",
 			},
 		},
 	}
@@ -287,6 +325,7 @@ func (d *Driver) Connect(
 	session.fetch = newFetcher(d.timeout)
 	session.upload = newUploadClient()
 	session.folders = &d.folders
+	session.options = roleOptionsOf(endpoint.Options)
 
 	resolved, err := session.handshake(ctx, d.Baseline().Intersect(profile))
 	if err != nil {

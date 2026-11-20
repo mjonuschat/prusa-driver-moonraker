@@ -57,7 +57,12 @@ const (
 	objectConfigFile    = "configfile"
 	objectWebhooks      = "webhooks"
 	objectVirtualSDCard = "virtual_sdcard"
+	objectHeaters       = "heaters"
 )
+
+type heatersList struct {
+	Available []string `json:"available_heaters"`
+}
 
 // subscribed is every object whose readings become state patches, in the order
 // a subscription names them.

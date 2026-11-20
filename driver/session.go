@@ -77,6 +77,9 @@ type Session struct {
 	// asked is the objects the subscription covers, which is also what a status
 	// query asks for.
 	asked []string
+	// options is the role options of the endpoint, set before the handshake.
+	options roleOptions
+	roles   roles
 
 	identity connectorapi.Identity
 	caps     connectorapi.Set
@@ -179,6 +182,23 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	extruders := extrudersOf(listed.Objects)
 	s.asked = append(present(subscribed, listed.Objects), furtherExtruders(extruders)...)
 
+	available, err := s.readHeaters(ctx, listed.Objects)
+	if err != nil {
+		return nil, err
+	}
+
+	s.roles = resolveRoles(listed.Objects, available, s.options)
+	for _, miss := range s.roles.unresolved {
+		s.log.Warn("an option names an object the machine does not list",
+			"option", miss.option, "value", miss.value)
+	}
+
+	for _, object := range s.roles.objects() {
+		if !slices.Contains(s.asked, object) {
+			s.asked = append(s.asked, object)
+		}
+	}
+
 	dumped, err := s.readConfig(ctx, listed.Objects)
 	if err != nil {
 		return nil, err
@@ -234,6 +254,33 @@ func (s *Session) readConfig(ctx context.Context, available []string) (configDum
 	}
 
 	return dumped, nil
+}
+
+// readHeaters asks the machine which heaters it has. A machine that lists no
+// heaters object answers none, so it resolves no chamber heater.
+func (s *Session) readHeaters(ctx context.Context, available []string) ([]string, error) {
+	if !slices.Contains(available, objectHeaters) {
+		return nil, nil
+	}
+
+	var reply statusReply
+
+	params := map[string]any{"objects": map[string]any{objectHeaters: []string{"available_heaters"}}}
+	if err := s.callSync(ctx, methodObjectsQuery, params, &reply); err != nil {
+		return nil, err
+	}
+
+	raw, held := reply.Status[objectHeaters]
+	if !held {
+		return nil, nil
+	}
+
+	var heaters heatersList
+	if err := decodeResult(methodObjectsQuery, raw, &heaters); err != nil {
+		return nil, err
+	}
+
+	return heaters.Available, nil
 }
 
 // furtherExtruders is every extruder but the first, which subscribed already
