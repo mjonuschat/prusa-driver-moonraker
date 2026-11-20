@@ -13,8 +13,14 @@ func fanRoles() roles {
 func run(t *testing.T, g *gauges, body string) map[string]string {
 	t.Helper()
 
+	return runOn(t, g, -1, body)
+}
+
+func runOn(t *testing.T, g *gauges, active int, body string) map[string]string {
+	t.Helper()
+
 	out := map[string]string{}
-	for _, p := range g.appendReadings(nil, objectFields(reading(body, t))) {
+	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), active) {
 		out[p.Path] = string(p.Value)
 	}
 
@@ -132,4 +138,50 @@ func TestANullChamberTemperatureOrTargetRemovesItsPath(t *testing.T) {
 	run(t, g, `{"heater_generic chamber": {"temperature": 30, "target": 40}}`)
 	expect(t, run(t, g, `{"heater_generic chamber": {"temperature": null, "target": null}}`),
 		map[string]string{chamberPath: "null", chamberTargetPath: "null"})
+}
+
+func headRoles() roles {
+	return roles{partFan: "fan", heatbreakFan: "heater_fan hb", bedFan: "heater_generic bed_fans"}
+}
+
+func TestAnRPMIsMirroredToTheActiveHead(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: headRoles()}
+	expect(t, runOn(t, g, 0, `{"fan": {"rpm": 3000}}`),
+		map[string]string{"/fan/print/rpm": "3000", "/tools/0/print_fan_rpm": "3000"})
+}
+
+func TestTheMirrorMovesWithTheActiveHeadAndLeavesNothingBehind(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: headRoles()}
+	runOn(t, g, 0, `{"fan": {"rpm": 3000}}`)
+	expect(t, runOn(t, g, 1, `{}`),
+		map[string]string{"/tools/0/print_fan_rpm": "null", "/tools/1/print_fan_rpm": "3000"})
+}
+
+func TestNoKnownHeadDropsTheMirror(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: headRoles()}
+	runOn(t, g, 0, `{"fan": {"rpm": 3000}}`)
+	expect(t, runOn(t, g, -1, `{}`), map[string]string{"/tools/0/print_fan_rpm": "null"})
+}
+
+func TestANullRPMDropsTheMirrorToo(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: headRoles()}
+	runOn(t, g, 0, `{"fan": {"rpm": 3000}}`)
+	expect(t, runOn(t, g, 0, `{"fan": {"rpm": null}}`),
+		map[string]string{"/fan/print/rpm": "null", "/tools/0/print_fan_rpm": "null"})
+}
+
+func TestTheBedFanHasNoMirror(t *testing.T) {
+	t.Parallel()
+
+	g := &gauges{roles: headRoles()}
+	expect(t, runOn(t, g, 0, `{"heater_generic bed_fans": {"power": 0.5, "rpm": 900}}`),
+		map[string]string{"/fan/bed/speed": "50", "/fan/bed/rpm": "900"})
 }

@@ -21,6 +21,19 @@ type gauges struct {
 	roles roles
 	// written is every path this gauge set has put and not yet dropped.
 	written map[string]struct{}
+	// lastRPM is the rpm each mirrored role last reported as a number, so a
+	// notification that names only the active head can still move the mirror.
+	lastRPM map[string]json.RawMessage
+	// mirror is the head each mirrored role's rpm currently sits on, absent
+	// when it sits on none.
+	mirror map[string]int
+}
+
+// mirrored maps the roles whose rpm is copied to the active head to the
+// member it is written as.
+var mirrored = map[string]string{
+	"print":     connectorapi.PrintFanRPM,
+	"heatbreak": connectorapi.HeatbreakFanRPM,
 }
 
 // numberOf reads raw as a JSON number. null is rejected explicitly because
@@ -89,15 +102,16 @@ func (g *gauges) number(
 	return g.put(out, path, scaled[0].Value)
 }
 
-// appendReadings writes the chamber and the fans.
+// appendReadings writes the chamber and the fans. active is the index of the
+// active head, or -1 when none is known.
 func (g *gauges) appendReadings(
-	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage,
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, active int,
 ) []connectorapi.StatePatch {
 	out = g.appendChamber(out, objects)
 
-	out = g.appendFan(out, objects, g.roles.partFan, "print")
-	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak")
-	out = g.appendFan(out, objects, g.roles.bedFan, "bed")
+	out = g.appendFan(out, objects, g.roles.partFan, "print", active)
+	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak", active)
+	out = g.appendFan(out, objects, g.roles.bedFan, "bed", active)
 
 	return out
 }
@@ -124,25 +138,72 @@ func (g *gauges) appendChamber(
 }
 
 // appendFan writes one fan role. A heater_generic that stands in for a fan
-// reports its power as the speed.
+// reports its power as the speed. The rpm of a print or heatbreak fan is also
+// mirrored to the active head.
 func (g *gauges) appendFan(
-	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, object, role string,
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, object, role string, active int,
 ) []connectorapi.StatePatch {
 	if object == "" {
 		return out
 	}
 
-	fields, ok := objects[object]
+	fields := objects[object]
+
+	if len(fields) > 0 {
+		speedKey := "speed"
+		if strings.HasPrefix(strings.ToLower(object), "heater_generic ") {
+			speedKey = "power"
+		}
+
+		out = g.number(out, fields, speedKey, fanPathPrefix+role+"/speed", true)
+		out = g.number(out, fields, "rpm", fanPathPrefix+role+"/rpm", false)
+	}
+
+	member, ok := mirrored[role]
 	if !ok {
 		return out
 	}
 
-	speedKey := "speed"
-	if strings.HasPrefix(strings.ToLower(object), "heater_generic ") {
-		speedKey = "power"
+	raw, reported := fields["rpm"]
+	if reported {
+		if _, isNumber := numberOf(raw); isNumber {
+			if g.lastRPM == nil {
+				g.lastRPM = map[string]json.RawMessage{}
+			}
+
+			g.lastRPM[role] = raw
+		} else {
+			delete(g.lastRPM, role)
+		}
 	}
 
-	out = g.number(out, fields, speedKey, fanPathPrefix+role+"/speed", true)
+	return g.moveMirror(out, role, member, active, reported)
+}
 
-	return g.number(out, fields, "rpm", fanPathPrefix+role+"/rpm", false)
+// moveMirror keeps the member of the active head equal to the role's last rpm.
+// The old head's member is dropped in the same call that writes the new one.
+func (g *gauges) moveMirror(
+	out []connectorapi.StatePatch, role, member string, active int, reported bool,
+) []connectorapi.StatePatch {
+	rpm, has := g.lastRPM[role]
+	head, placed := g.mirror[role]
+
+	if placed && (!has || active < 0 || head != active) {
+		out = g.drop(out, connectorapi.ToolPath(connectorapi.HeadID(head), member))
+		delete(g.mirror, role)
+
+		placed = false
+	}
+
+	if !has || active < 0 || (placed && !reported) {
+		return out
+	}
+
+	if g.mirror == nil {
+		g.mirror = map[string]int{}
+	}
+
+	g.mirror[role] = active
+
+	return g.put(out, connectorapi.ToolPath(connectorapi.HeadID(active), member), rpm)
 }

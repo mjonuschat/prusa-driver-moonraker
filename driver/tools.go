@@ -126,6 +126,30 @@ func toolPatches(dumped configDump, extruders []string) []connectorapi.StatePatc
 type heads struct {
 	// count is how many extruders the machine lists.
 	count int
+	// active is the head toolhead.extruder last named, -1 when it named none,
+	// and valid only once seen is set.
+	active int
+	seen   bool
+}
+
+// activeFrom returns the active head, remembering it. A reading with no
+// toolhead.extruder keeps the head last known. One that names no extruder, or
+// null, means no head is known.
+func (h *heads) activeFrom(objects map[string]map[string]json.RawMessage) int {
+	if raw, present := objects[objectToolhead]["extruder"]; present {
+		h.seen = true
+		h.active = -1
+
+		if tool, named := toolOf(klipperText(raw)); named {
+			h.active = tool
+		}
+	}
+
+	if !h.seen {
+		return -1
+	}
+
+	return h.active
 }
 
 // appendReadings writes each extruder's nozzle readings under its head. With
