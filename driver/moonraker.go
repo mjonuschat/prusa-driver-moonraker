@@ -191,6 +191,7 @@ type Driver struct {
 
 	// folders is what each machine's sessions have listed, kept across redials.
 	folders folderMemory
+	paths   pathMemory
 }
 
 var _ connectorapi.Outbound = (*Driver)(nil)
@@ -327,6 +328,8 @@ func (d *Driver) Connect(
 	session.fetch = newFetcher(d.timeout)
 	session.upload = newUploadClient()
 	session.folders = &d.folders
+	session.paths = &d.paths
+	session.unit = unitOf(endpoint)
 	session.options = roleOptionsOf(endpoint.Options)
 
 	resolved, err := session.handshake(ctx, d.Baseline().Intersect(profile))
@@ -341,13 +344,19 @@ func (d *Driver) Connect(
 	return session, nil
 }
 
+// unitOf is the unit id the endpoint names, or one made from its address.
+func unitOf(endpoint connectorapi.Endpoint) string {
+	if unit := endpoint.Options[optionUnitUID]; unit != "" {
+		return unit
+	}
+
+	return unitPrefix + endpoint.Address
+}
+
 // identityOf builds the identity from the endpoint options. A missing option
 // falls back to what the machine or the address gives.
 func identityOf(endpoint connectorapi.Endpoint, reported printerInfo) connectorapi.Identity {
-	unit := endpoint.Options[optionUnitUID]
-	if unit == "" {
-		unit = unitPrefix + endpoint.Address
-	}
+	unit := unitOf(endpoint)
 
 	model := endpoint.Options[optionModel]
 	if model == "" {

@@ -87,3 +87,123 @@ func TestTwoMachinesDoNotShareFolderMemory(t *testing.T) {
 
 	requireNoChange(t, filesChangedOf(t, two))
 }
+
+func chamberStatus(object string) moonrakersim.Options {
+	status := moonrakersim.DefaultStatus()
+	status[object] = map[string]any{"temperature": 30.0, "target": 0.0}
+
+	available := []string{"extruder", "heater_bed"}
+	if object == "heater_chamber" {
+		available = append(available, object)
+	}
+
+	status["heaters"] = map[string]any{"available_heaters": available}
+
+	return moonrakersim.Options{
+		Objects: append(moonrakersim.DefaultObjects(), object, "heaters"),
+		Status:  status,
+	}
+}
+
+func firstPatches(t *testing.T, session connectorapi.Session) []connectorapi.StatePatch {
+	t.Helper()
+
+	var out []connectorapi.StatePatch
+
+	for {
+		select {
+		case patch, open := <-session.State():
+			if !open {
+				return out
+			}
+
+			out = append(out, patch)
+		case <-time.After(300 * time.Millisecond):
+			return out
+		}
+	}
+}
+
+func removed(patches []connectorapi.StatePatch, path string) bool {
+	for _, patch := range patches {
+		if patch.Path == path && string(patch.Value) == "null" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func written(patches []connectorapi.StatePatch, path string) bool {
+	for _, patch := range patches {
+		if patch.Path == path && string(patch.Value) != "null" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func connectWith(
+	t *testing.T, d *moonraker.Driver, host *moonrakersim.Host, options map[string]string,
+) connectorapi.Session {
+	t.Helper()
+
+	session, err := d.Connect(t.Context(), connectorapi.Endpoint{Address: host.Address(), Options: options}, d.Baseline())
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = session.Close() })
+
+	return session
+}
+
+func TestARedialRemovesTheTargetOfAChamberThatBecameASensor(t *testing.T) {
+	t.Parallel()
+
+	d := moonraker.NewDriver(0)
+	options := map[string]string{"unit_uid": "chamber"}
+
+	first := connectWith(t, d, startMachine(t, chamberStatus("heater_chamber")), options)
+	require.True(t, written(firstPatches(t, first), "/temperature/chamber_target"))
+	require.NoError(t, first.Close())
+
+	second := connectWith(t, d, startMachine(t, chamberStatus("temperature_sensor Chamber")), options)
+	patches := firstPatches(t, second)
+
+	require.True(t, removed(patches, "/temperature/chamber_target"))
+	require.True(t, written(patches, "/temperature/chamber"))
+	require.False(t, removed(patches, "/temperature/chamber"))
+}
+
+func TestARedialRemovesAnExtraThatWasDroppedFromTheOptions(t *testing.T) {
+	t.Parallel()
+
+	d := moonraker.NewDriver(0)
+	opts := chamberStatus("temperature_sensor Box")
+	opts.Objects = append(opts.Objects, "temperature_sensor Chamber")
+	opts.Status["temperature_sensor Chamber"] = map[string]any{"temperature": 25.0}
+
+	host := startMachine(t, opts)
+
+	first := connectWith(t, d, host, map[string]string{"unit_uid": "extra", "extra_sensors": "temperature_sensor Box"})
+	require.True(t, written(firstPatches(t, first), "/sensors/Box/temperature"))
+	require.NoError(t, first.Close())
+
+	second := connectWith(t, d, host, map[string]string{"unit_uid": "extra"})
+	require.True(t, removed(firstPatches(t, second), "/sensors/Box/temperature"))
+}
+
+func TestAFreshDriverSweepsTheFixedPathsButNotAnExtra(t *testing.T) {
+	t.Parallel()
+
+	d := moonraker.NewDriver(0)
+	session := connectWith(t, d, startMachine(t, chamberStatus("temperature_sensor Chamber")),
+		map[string]string{"unit_uid": "fresh"})
+
+	patches := firstPatches(t, session)
+	require.True(t, removed(patches, "/temperature/chamber_target"))
+
+	for _, patch := range patches {
+		require.NotContains(t, patch.Path, "/sensors/")
+	}
+}

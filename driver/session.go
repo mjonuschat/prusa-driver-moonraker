@@ -97,6 +97,7 @@ type Session struct {
 
 	unit    string
 	folders *folderMemory
+	paths   *pathMemory
 
 	// httpBase and fetch reach Moonraker's HTTP side, which serves thumbnails.
 	httpBase string
@@ -221,8 +222,17 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	}
 
 	s.reader.heads.count = len(extruders)
-	s.first = append(toolPatches(dumped, extruders), buildVolumePatches(dumped)...)
 	opened := s.reader.patchesFrom(opening.Status, opening.EventTime, time.Now())
+
+	var remembered []string
+	if s.paths != nil {
+		remembered = s.paths.recorded(s.unit)
+		s.paths.remember(s.unit, s.reader.gauges.written)
+	}
+
+	s.first = sweepPatches(sweepPaths(len(extruders), remembered, s.reader.gauges.written))
+	s.first = append(s.first, toolPatches(dumped, extruders)...)
+	s.first = append(s.first, buildVolumePatches(dumped)...)
 	s.first = append(s.first, opened...)
 
 	for _, patch := range opened {
@@ -592,6 +602,7 @@ func (s *Session) read() {
 	defer close(s.patches)
 	defer close(s.done)
 	defer s.hangUp()
+	defer s.rememberPaths()
 
 	s.conn.SetPongHandler(func(string) error { return s.rearm() })
 
@@ -616,6 +627,12 @@ func (s *Session) read() {
 		}
 
 		s.dispatch(data)
+	}
+}
+
+func (s *Session) rememberPaths() {
+	if s.paths != nil {
+		s.paths.remember(s.unit, s.reader.gauges.written)
 	}
 }
 
