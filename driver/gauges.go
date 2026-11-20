@@ -29,6 +29,7 @@ type gauges struct {
 	// mirror is the head each mirrored role's rpm currently sits on, absent
 	// when it sits on none.
 	mirror map[string]int
+	runout runout
 }
 
 // mirrored maps the roles whose rpm is copied to the active head to the
@@ -108,11 +109,12 @@ func (g *gauges) number(
 // active is the index of the active head, or -1 when none is known. onBed says
 // whether a print is on the bed, which is when layers are reported.
 func (g *gauges) appendReadings(
-	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, active int, onBed bool,
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage, active int, onBed bool, printState string,
 ) []connectorapi.StatePatch {
 	out = g.appendChamber(out, objects)
 	out = g.appendLayers(out, objects[objectPrintStats], onBed)
 	out = g.appendExtras(out, objects)
+	out = g.appendRunout(out, objects[g.roles.filament], printState)
 
 	out = g.appendFan(out, objects, g.roles.partFan, "print", active)
 	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak", active)

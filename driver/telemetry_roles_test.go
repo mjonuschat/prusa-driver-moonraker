@@ -78,3 +78,29 @@ func TestLeleReportsItsLayers(t *testing.T) {
 
 	collect(t, session, map[string]string{"/job/layer": "19", "/job/layer_count": "57"})
 }
+
+func TestUkuRaisesARunoutDuringAPrint(t *testing.T) {
+	t.Parallel()
+
+	const sensor = "filament_switch_sensor runout_sensor"
+
+	status := moonrakersim.DefaultStatus()
+	status[sensor] = map[string]any{"filament_detected": true}
+
+	machine := startMachine(t, moonrakersim.Options{
+		Objects: append(moonrakersim.DefaultObjects(), sensor),
+		Status:  status,
+	})
+
+	driver := moonraker.NewDriver(0)
+	session, err := driver.Connect(t.Context(), connectorapi.Endpoint{Address: machine.Address()}, driver.Baseline())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "printing", "filename": "a.gcode"}})
+	machine.Push(map[string]map[string]any{sensor: {"filament_detected": false}})
+	collect(t, session, map[string]string{"/dialog/id": "1"})
+
+	machine.Push(map[string]map[string]any{sensor: {"filament_detected": true}})
+	collect(t, session, map[string]string{"/dialog/id": "null"})
+}

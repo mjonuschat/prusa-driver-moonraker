@@ -160,7 +160,7 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 
 	out = r.heads.appendReadings(out, objects)
 
-	out = r.gauges.appendReadings(out, objects, r.heads.activeFrom(objects), p.id != "")
+	out = r.gauges.appendReadings(out, objects, r.heads.activeFrom(objects), p.id != "", p.state)
 
 	bed := objects[objectHeaterBed]
 	out = appendVerbatim(out, bed["temperature"], bedPath)

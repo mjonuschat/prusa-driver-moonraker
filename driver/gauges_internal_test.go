@@ -20,7 +20,7 @@ func runOn(t *testing.T, g *gauges, active int, body string) map[string]string {
 	t.Helper()
 
 	out := map[string]string{}
-	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), active, false) {
+	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), active, false, "") {
 		out[p.Path] = string(p.Value)
 	}
 
@@ -190,7 +190,7 @@ func layersOn(t *testing.T, g *gauges, onBed bool, body string) map[string]strin
 	t.Helper()
 
 	out := map[string]string{}
-	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), -1, onBed) {
+	for _, p := range g.appendReadings(nil, objectFields(reading(body, t)), -1, onBed, "") {
 		out[p.Path] = string(p.Value)
 	}
 
