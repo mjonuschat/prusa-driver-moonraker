@@ -8,7 +8,6 @@ export interface MachineForm {
   unitUid: string;
   vendor: string;
   model: string;
-  connector: string;
 }
 
 /** Moonraker's own default port, which the driver also adds to a bare host. */
@@ -90,10 +89,75 @@ export const endpointBody = (
   };
 
   return {
-    connector:
-      form.connector.trim() === '' ? DEFAULT_CONNECTOR : form.connector.trim(),
+    connector: DEFAULT_CONNECTOR,
     address: cleanAddress(form.address),
     enabled: true,
     options,
   };
 };
+
+/** The endpoint options that name a Klipper object for one role, in the order the edit view lists them. */
+export const ROLE_KEYS = [
+  'chamber_object',
+  'bed_fans_object',
+  'part_fan_object',
+  'heatbreak_fan_object',
+  'filament_object',
+  'chamber_light_object',
+  'chamber_fan_object',
+  'extra_sensors',
+  'extra_fans',
+] as const;
+
+export type RoleKey = (typeof ROLE_KEYS)[number];
+
+/** What the edit view holds for each role. An empty string is auto-detect. */
+export type RoleValues = Record<RoleKey, string>;
+
+/** The role overrides an endpoint's options hold. A role with none reads empty. */
+export const rolesOf = (
+  options: Record<string, string> | undefined,
+): RoleValues =>
+  Object.fromEntries(
+    ROLE_KEYS.map((key) => [key, options?.[key] ?? '']),
+  ) as RoleValues;
+
+/**
+ * After an edit, every option the view does not own is kept, and a role left
+ * empty is removed so the driver detects it again.
+ */
+export const withRoles = (
+  options: Record<string, string> | undefined,
+  values: RoleValues,
+): Record<string, string> => {
+  const next: Record<string, string> = Object.fromEntries(
+    Object.entries(options ?? {}).filter(
+      ([key]) => !(ROLE_KEYS as readonly string[]).includes(key),
+    ),
+  );
+  for (const key of ROLE_KEYS) {
+    const value = values[key].trim();
+    if (value !== '') next[key] = value;
+  }
+
+  return next;
+};
+
+export const updateBody = (
+  endpoint: {
+    address: string;
+    connector: string;
+    enabled: boolean;
+  },
+  options: Record<string, string>,
+): {
+  connector: string;
+  address: string;
+  enabled: boolean;
+  options: Record<string, string>;
+} => ({
+  connector: endpoint.connector,
+  address: endpoint.address,
+  enabled: endpoint.enabled,
+  options,
+});

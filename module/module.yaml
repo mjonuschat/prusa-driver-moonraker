@@ -25,7 +25,7 @@ license: OCL v1.1 + Micro v1 + NoSaaS v1 + SWAtt v1
 # installed module. Write your own sentence here, a title if the name alone reads badly, and your name or
 # your team's beside it.
 title: Moonraker
-summary: Add a Klipper machine behind Moonraker to Prusa Connect by its address.
+summary: Connect Klipper printers to Prusa Connect through Moonraker.
 codeowner: mjonuschat
 
 ui:

@@ -18,8 +18,9 @@
     AlertDescription,
     AlertTitle,
     Button,
-    Card,
-    CardContent,
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
     Field,
     FaultAlert,
     Input,
@@ -38,6 +39,15 @@
   } from './endpoint';
   import { heldHost } from './host';
 
+  interface Props {
+    /** Leaves the steps without adding. Absent when there is nothing to go back to. */
+    oncancel?: () => void;
+    /** Leaves the steps after a machine was added. */
+    ondone?: () => void;
+  }
+
+  const { oncancel, ondone }: Props = $props();
+
   type Step = 'address' | 'details' | 'waiting' | 'connected';
   const ORDER: readonly Step[] = ['address', 'details', 'waiting', 'connected'];
   const HELP_AFTER_MS = 30_000;
@@ -52,7 +62,6 @@
     unitUid: '',
     vendor: '',
     model: '',
-    connector: DEFAULT_CONNECTOR,
   });
   let touchedName = $state(false);
   let showErrors = $state(false);
@@ -174,7 +183,6 @@
       unitUid: '',
       vendor: '',
       model: '',
-      connector: form.connector,
     };
     touchedName = false;
     showErrors = false;
@@ -214,16 +222,13 @@
     </p>
 
     <div class="flex min-w-0 flex-1 flex-col gap-4 @3xl/add:max-w-2xl">
-      <Card data-part="step-card">
-        <CardContent class="flex flex-col gap-6">
+      <div class="flex flex-col gap-6" data-part="step-card">
+        <div class="flex flex-col gap-6">
           {#if step === 'address'}
             <header class="flex flex-col gap-1">
-              <h2 class="text-xl font-semibold">
+              <h2 class="text-base font-medium">
                 {t('machines.address.title')}
               </h2>
-              <p class="text-sm text-muted-foreground">
-                {t('machines.address.lead')}
-              </p>
             </header>
             <Field
               label={t('machines.address.label')}
@@ -247,12 +252,9 @@
             />
           {:else if step === 'details'}
             <header class="flex flex-col gap-1">
-              <h2 class="text-xl font-semibold">
+              <h2 class="text-base font-medium">
                 {t('machines.details.title')}
               </h2>
-              <p class="text-sm text-muted-foreground">
-                {t('machines.details.lead')}
-              </p>
             </header>
             {#if fault !== undefined}
               <FaultAlert {fault} />
@@ -277,21 +279,6 @@
               }}
             />
             <Field
-              label={t('machines.unit.label')}
-              description={t('machines.unit.help')}
-              control={Input}
-              controlProps={{
-                value: form.unitUid,
-                placeholder: name,
-                autocomplete: 'off',
-                oninput: (event: Event) => {
-                  form.unitUid = (
-                    event.currentTarget as HTMLInputElement
-                  ).value;
-                },
-              }}
-            />
-            <Field
               label={t('machines.model.label')}
               description={t('machines.model.help')}
               control={Input}
@@ -303,35 +290,45 @@
                 },
               }}
             />
-            <Field
-              label={t('machines.vendor.label')}
-              description={t('machines.vendor.help')}
-              control={Input}
-              controlProps={{
-                value: form.vendor,
-                autocomplete: 'off',
-                oninput: (event: Event) => {
-                  form.vendor = (event.currentTarget as HTMLInputElement).value;
-                },
-              }}
-            />
-            <Field
-              label={t('machines.connector.label')}
-              description={t('machines.connector.help')}
-              control={Input}
-              controlProps={{
-                value: form.connector,
-                autocomplete: 'off',
-                oninput: (event: Event) => {
-                  form.connector = (
-                    event.currentTarget as HTMLInputElement
-                  ).value;
-                },
-              }}
-            />
+            <Collapsible data-part="advanced">
+              <CollapsibleTrigger variant="inline">
+                {t('machines.advanced')}
+              </CollapsibleTrigger>
+              <CollapsibleContent class="flex flex-col gap-6 pt-4">
+                <Field
+                  label={t('machines.unit.label')}
+                  description={t('machines.unit.help')}
+                  control={Input}
+                  controlProps={{
+                    value: form.unitUid,
+                    placeholder: name,
+                    autocomplete: 'off',
+                    oninput: (event: Event) => {
+                      form.unitUid = (
+                        event.currentTarget as HTMLInputElement
+                      ).value;
+                    },
+                  }}
+                />
+                <Field
+                  label={t('machines.vendor.label')}
+                  description={t('machines.vendor.help')}
+                  control={Input}
+                  controlProps={{
+                    value: form.vendor,
+                    autocomplete: 'off',
+                    oninput: (event: Event) => {
+                      form.vendor = (
+                        event.currentTarget as HTMLInputElement
+                      ).value;
+                    },
+                  }}
+                />
+              </CollapsibleContent>
+            </Collapsible>
           {:else if step === 'waiting'}
             <header class="flex flex-col gap-1">
-              <h2 class="text-xl font-semibold">
+              <h2 class="text-base font-medium">
                 {t('machines.waiting.title')}
               </h2>
               <p class="text-sm text-muted-foreground" role="status">
@@ -344,14 +341,14 @@
                 <AlertDescription>
                   {t('machines.waiting.slow.body', {
                     address: cleanAddress(form.address),
-                    connector: form.connector || DEFAULT_CONNECTOR,
+                    connector: DEFAULT_CONNECTOR,
                   })}
                 </AlertDescription>
               </Alert>
             {/if}
           {:else}
             <header class="flex flex-col gap-1">
-              <h2 class="text-xl font-semibold">
+              <h2 class="text-base font-medium">
                 {t('machines.connected.title')}
               </h2>
               <p class="text-sm text-muted-foreground">
@@ -369,6 +366,11 @@
               <Button variant="ghost" onclick={another}>
                 {t('machines.connected.another')}
               </Button>
+              {#if ondone !== undefined}
+                <Button variant="ghost" onclick={ondone}>
+                  {t('machines.connected.done')}
+                </Button>
+              {/if}
             </div>
           {/if}
 
@@ -380,6 +382,10 @@
               {#if position > 0}
                 <Button variant="ghost" onclick={back} disabled={saving}>
                   {t('machines.steps.back')}
+                </Button>
+              {:else if oncancel !== undefined}
+                <Button variant="ghost" onclick={oncancel}>
+                  {t('machines.steps.cancel')}
                 </Button>
               {:else}
                 <span></span>
@@ -397,8 +403,8 @@
               {/if}
             </nav>
           {/if}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   </div>
 </div>
