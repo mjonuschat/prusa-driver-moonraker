@@ -129,6 +129,10 @@ type Options struct {
 	// UploadStoresSize is the size an upload is listed with, whatever arrived.
 	// Zero is off.
 	UploadStoresSize int64
+
+	// Spoolman is the machine's Spoolman component. Nil means it has none, and
+	// the Spoolman methods answer method-not-found.
+	Spoolman *Spoolman
 }
 
 // DefaultObjects is a complete Klipper machine: it can pause, it has a hotend
@@ -199,6 +203,12 @@ type Host struct {
 	uploadDropAfter  int64
 	uploadStoresSize int64
 	uploads          []Upload
+
+	spoolman  *Spoolman
+	silenced  map[string]bool
+	removed   map[string]bool
+	callTimes map[string][]time.Time
+	timers    []*time.Timer
 }
 
 // link is one open connection and the lock that keeps two writers off it. A
@@ -244,6 +254,7 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 	}
 
 	host.initFiles(opts)
+	host.initSpoolman(opts)
 
 	if host.objects == nil {
 		host.objects = DefaultObjects()
@@ -270,6 +281,7 @@ func (h *Host) Address() string { return h.listener.Addr().String() }
 
 // Close stops serving and drops every open connection.
 func (h *Host) Close() error {
+	h.stopTimers()
 	h.HangUp()
 
 	if err := h.server.Close(); err != nil {
@@ -398,6 +410,10 @@ func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if h.isSilenced(request.Method) {
+			continue
+		}
+
 		if err = open.write(h.answer(*request.ID, request.Method, request.Params)); err != nil {
 			return
 		}
@@ -410,6 +426,12 @@ func (h *Host) record(method string, params json.RawMessage) {
 
 	h.calls = append(h.calls, method)
 
+	if h.callTimes == nil {
+		h.callTimes = map[string][]time.Time{}
+	}
+
+	h.callTimes[method] = append(h.callTimes[method], time.Now())
+
 	if h.requests == nil {
 		h.requests = map[string][]json.RawMessage{}
 	}
@@ -419,6 +441,10 @@ func (h *Host) record(method string, params json.RawMessage) {
 
 // answer is what this host makes of one call.
 func (h *Host) answer(id uint64, method string, params json.RawMessage) map[string]any {
+	if h.isRemoved(method) {
+		return errorFrame(id, methodNotFound, "Method "+method+" is not available")
+	}
+
 	if message, refused := h.refusal(method); refused {
 		return errorFrame(id, requestRefused, message)
 	}
@@ -455,6 +481,10 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 		methodFilesPostDirectory, methodFilesDeleteDirectory, methodFilesDeleteFile:
 		return h.answerFiles(id, method, params)
 	default:
+		if frame, ok := h.answerSpoolman(id, method, params); ok {
+			return frame
+		}
+
 		return errorFrame(id, methodNotFound, "Method "+method+" is not available")
 	}
 }
