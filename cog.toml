@@ -1,0 +1,23 @@
+# cocogitto configuration. `make release VERSION=x.y.z` runs `cog bump`, which
+# rewrites the files that name the version, commits them signed, and creates the
+# tag. The hooks run in order; one that fails stops the bump.
+#
+# The changelog is module/CHANGELOG.md, written by hand for operators, so
+# cocogitto's own is off.
+tag_prefix = "v"
+disable_changelog = true
+ignore_merge_commits = true
+
+pre_bump_hooks = [
+  # The release needs an entry to date. Stop here if nobody wrote one.
+  "grep -q '^## .* - unreleased$' module/CHANGELOG.md",
+  "sed -i.bak 's/^## .* - unreleased$/## {{version}} - '\"$(date +%Y-%m-%d)\"'/' module/CHANGELOG.md && rm module/CHANGELOG.md.bak",
+  "sed -i.bak 's/^version: .*/version: {{version}}/' module/module.yaml && rm module/module.yaml.bak",
+  "npm pkg set version={{version}} --prefix module/ui",
+  "sh scripts/check-versions.sh",
+]
+
+# cog makes the tag lightweight, so it is replaced with a signed annotated one.
+post_bump_hooks = [
+  "git tag -f -s v{{version}} -m v{{version}}",
+]

@@ -14,6 +14,7 @@
 # Env overrides, for tests:
 #   MODULE_YAML  the manifest, default module/module.yaml
 #   CHANGELOG    the changelog, default module/CHANGELOG.md
+#   PACKAGE_JSON the page's package file, default module/ui/package.json
 #   MAIN_REF     what the tagged commit must be an ancestor of, default origin/main
 #   TAG_COMMIT   the tagged commit, default HEAD
 set -eu
@@ -32,6 +33,11 @@ module_yaml=${MODULE_YAML:-module/module.yaml}
 changelog=${CHANGELOG:-module/CHANGELOG.md}
 main_ref=${MAIN_REF:-origin/main}
 tag_commit=${TAG_COMMIT:-HEAD}
+
+# check_files: every file that names the version names the same one.
+check_files() {
+	"$(dirname "$0")/check-versions.sh" >/dev/null || die "the version files disagree"
+}
 
 check_version() {
 	printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' ||
@@ -83,6 +89,7 @@ tag)
 	check_version "$version"
 	manifest=$(manifest_version)
 	[ "$manifest" = "$version" ] || die "the tag is $tag but $module_yaml says version $manifest"
+	check_files
 	check_changelog "$version"
 	git merge-base --is-ancestor "$tag_commit" "$main_ref" ||
 		die "the tagged commit is not on main ($main_ref)"
@@ -91,6 +98,7 @@ dispatch)
 	version=$(manifest_version)
 	[ -n "$version" ] || die "$module_yaml has no version"
 	check_version "$version"
+	check_files
 	check_changelog "$version"
 	;;
 version)

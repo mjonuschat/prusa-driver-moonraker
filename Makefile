@@ -1,4 +1,4 @@
-.PHONY: test lint build embedded-app sim update-core test-scripts test-smoke
+.PHONY: release test lint build embedded-app sim update-core test-scripts test-smoke
 
 test:
 	go test -race ./...
@@ -27,6 +27,18 @@ sim:
 
 update-core:
 	git submodule update --remote prusa-connect
+
+# Cuts a release: dates the changelog entry, sets the version in every file that
+# names it, commits, and signs the tag. It pushes nothing. The tree must be clean
+# and on main. Needs cocogitto (`brew install cocogitto`).
+#   make release VERSION=0.1.0-rc.1
+release:
+	@if [ -z "$(VERSION)" ]; then echo "usage: make release VERSION=<x.y.z[-prerelease]>" >&2; exit 2; fi
+	@command -v cog >/dev/null 2>&1 || { echo "release: cocogitto is missing (brew install cocogitto)" >&2; exit 1; }
+	@[ "$$(git branch --show-current)" = main ] || { echo "release: not on main" >&2; exit 1; }
+	@sh scripts/verify-release.sh version "$(VERSION)" >/dev/null
+	cog bump --version "$(VERSION)"
+	@echo "Tagged v$(VERSION). Check it, then: git push origin main v$(VERSION)"
 
 # The tools the script tests need. Missing ones are named before anything runs.
 SCRIPT_TOOLS := go git jq shellcheck actionlint awk file

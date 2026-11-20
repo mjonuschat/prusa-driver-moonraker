@@ -1,6 +1,11 @@
 #!/bin/sh
 # usage: build-server.sh [--allow-placeholder] <goos> <goarch> <goarm> <version> <out>
 #
+# <version> is this driver's version. The binary reports it after the core's, as
+# <core version>+moonraker-<version>, where the core version is the first line
+# of prusa-connect/VERSION. The documentation link names the core version alone,
+# because the core's docs are not versioned by this driver.
+#
 # compose-build runs `go run` to detect build tags, which fails under a
 # cross-compiling GOARCH. This script runs compose-build's own steps instead and
 # applies the cross environment only to the last one: generate the module,
@@ -9,8 +14,9 @@
 # Env:
 #   EXTRA_TAGS  extra build tags; default "observability postgres", which with the
 #               detected tags is the set the core's own release builds with
-#   DOCS_URL    the documentation link template stamped into the binary; unset
-#               keeps the core's default
+#   DOCS_URL    the documentation link template stamped into the binary, with
+#               {version} replaced by the core version; unset uses the core's
+#               default template
 #   APPDIST     where the core's web app is embedded from
 #
 # The build refuses to run unless $APPDIST/index.html exists, because a server
@@ -88,10 +94,19 @@ detected=$(cd "$work" && native go run github.com/prusa3d/prusa-connect/cmd/dete
 tags="full $detected"
 tags=$(printf '%s' "$tags" | tr -s ' ' | sed 's/ $//')
 
-ldflags="-X github.com/prusa3d/prusa-connect/internal/kernel/version.stamped=$version"
-if [ -n "${DOCS_URL:-}" ]; then
-	ldflags="$ldflags -X github.com/prusa3d/prusa-connect/internal/kernel/version.docsURL=$DOCS_URL"
-fi
+core_version=$(tr -d '[:space:]' <"$core/VERSION")
+[ -n "$core_version" ] || {
+	echo "build-server: $core/VERSION is empty" >&2
+	exit 1
+}
+stamp="$core_version+moonraker-$version"
+
+default_docs="https://beta.prusa3d.com/connect-local/docs/{version}/"
+docs_template=${DOCS_URL:-$default_docs}
+docs_url=$(printf '%s' "$docs_template" | sed "s|{version}|$core_version|g")
+
+ldflags="-X github.com/prusa3d/prusa-connect/internal/kernel/version.stamped=$stamp"
+ldflags="$ldflags -X github.com/prusa3d/prusa-connect/internal/kernel/version.docsURL=$docs_url"
 
 # 4. Cross-compile. The target environment is set on this command only.
 (cd "$work" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \

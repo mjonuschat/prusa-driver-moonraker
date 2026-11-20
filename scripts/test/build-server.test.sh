@@ -60,7 +60,8 @@ host_out=$tmp/host
 	cat "$tmp/host.err" >&2
 	fail "the host build succeeds"
 }
-assert_contains "the host binary reports the stamped version" "$("$host_out" --version 2>&1)" "9.9.9-test"
+core_version=$(tr -d '[:space:]' <prusa-connect/VERSION)
+assert_contains "the host binary reports the core version and this driver's" "$("$host_out" --version 2>&1)" "$core_version+moonraker-9.9.9-test"
 tags_line=$(grep '^tags:' "$tmp/host.out" | sed 's/^tags:[ ]*//' | tr -s ' ')
 assert_eq "the tags are the core release set" "full diagnostics observability postgres" "$tags_line"
 wrote_line=$(grep '^wrote:' "$tmp/host.out" | sed 's/^wrote:[ ]*//')
@@ -81,10 +82,10 @@ DOCS_URL="https://example.test/{version}/" "$script" --allow-placeholder "$host_
 	cat "$tmp/docs.out" >&2
 	fail "a build with DOCS_URL succeeds"
 }
-if grep -aq "example.test" "$tmp/docs"; then
-	pass "DOCS_URL is stamped into the binary"
+if grep -aq "example.test/$core_version/" "$tmp/docs"; then
+	pass "DOCS_URL is stamped into the binary with the core version"
 else
-	fail "DOCS_URL is stamped into the binary"
+	fail "DOCS_URL is stamped into the binary with the core version"
 fi
 
 # 6b. A cross-compiling environment inherited from the caller must not break the

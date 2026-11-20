@@ -12,9 +12,11 @@ trap 'rm -rf "$tmp"' EXIT
 
 manifest=$tmp/module.yaml
 changelog=$tmp/CHANGELOG.md
+package=$tmp/package.json
 
 set_fixture() {
 	printf 'name: machines\nversion: %s\nkind: asset\n' "$1" >"$manifest"
+	printf '{"name":"page","version":"%s"}\n' "$1" >"$package"
 	printf '# Changelog\n\nintro text\n\n## %s\n\n- one\n' "$2" >"$changelog"
 	if [ $# -ge 3 ]; then
 		printf '\n## %s\n\n- two\n' "$3" >>"$changelog"
@@ -28,7 +30,7 @@ git_temp_repo "$repo"
 (cd "$repo" && git commit --allow-empty -m "feat: base" --quiet && git branch -M main)
 
 run() {
-	(cd "$repo" && MODULE_YAML=$manifest CHANGELOG=$changelog MAIN_REF=main TAG_COMMIT=HEAD "$script" "$@")
+	(cd "$repo" && MODULE_YAML=$manifest PACKAGE_JSON=$package CHANGELOG=$changelog MAIN_REF=main TAG_COMMIT=HEAD "$script" "$@")
 }
 
 set_fixture 0.2.0 "0.2.0 - 2026-12-01"
@@ -45,6 +47,12 @@ for bad in 0.2.0 v0.2 v0.2.0+build.1 vx v0.2.0- 'v0.2.0-rc..1!' v0.2.0-rc- v01.2
 	set_fixture 0.2.0 "0.2.0 - 2026-12-01"
 	assert_fails "the tag '$bad' is rejected" run tag "$bad"
 done
+
+set_fixture 0.2.0 "0.2.0 - 2026-12-01"
+printf '{"version":"0.1.0"}\n' >"$package"
+assert_fails "a page package that differs from the manifest fails" run tag v0.2.0
+assert_contains "the message names the disagreement" "$FAILED_OUTPUT" "disagree"
+assert_fails "a page package that differs fails a dispatch run" run dispatch
 
 set_fixture 0.2.1 "0.2.1 - 2026-12-01"
 assert_fails "a manifest that differs from the tag fails" run tag v0.2.0
