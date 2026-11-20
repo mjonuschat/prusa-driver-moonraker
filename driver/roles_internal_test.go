@@ -245,3 +245,32 @@ func TestAnUnlistedOverrideIsLoggedWithItsOption(t *testing.T) {
 	require.Equal(t, "chamber_object", warnings[0]["option"])
 	require.Equal(t, "nope", warnings[0]["value"])
 }
+
+func TestUnresolvedOptionsArePublishedAsAList(t *testing.T) {
+	t.Parallel()
+	r := resolveRoles(hankObjects, hankHeaters, roleOptions{chamber: "nope", extraFans: []string{"ghost"}})
+	patch := r.unresolvedPatch()
+	require.Equal(t, "/moonraker/unresolved", patch.Path)
+	require.JSONEq(t, `[{"option":"chamber_object","value":"nope"},{"option":"extra_fans","value":"ghost"}]`, string(patch.Value))
+}
+
+func TestNothingUnresolvedClearsThePath(t *testing.T) {
+	t.Parallel()
+	patch := resolveRoles(hankObjects, hankHeaters, roleOptions{}).unresolvedPatch()
+	require.Equal(t, "/moonraker/unresolved", patch.Path)
+	require.Equal(t, "null", string(patch.Value))
+}
+
+func TestDetectedRolesArePublishedByOption(t *testing.T) {
+	t.Parallel()
+	r := resolveRoles(ukuObjects, ukuHeaters, roleOptions{})
+	patch := r.detectedPatch()
+	require.Equal(t, "/moonraker/detected", patch.Path)
+	require.Contains(t, string(patch.Value), `"part_fan_object":"fan"`)
+}
+
+func TestNothingDetectedPublishesAnEmptyObject(t *testing.T) {
+	t.Parallel()
+	r := resolveRoles(nil, nil, roleOptions{})
+	require.Equal(t, "{}", string(r.detectedPatch().Value))
+}

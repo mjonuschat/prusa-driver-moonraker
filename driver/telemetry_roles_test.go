@@ -104,3 +104,22 @@ func TestUkuRaisesARunoutDuringAPrint(t *testing.T) {
 	machine.Push(map[string]map[string]any{sensor: {"filament_detected": true}})
 	collect(t, session, map[string]string{"/dialog/id": "null"})
 }
+
+func TestAnOverrideThatNamesAnUnlistedObjectIsPublished(t *testing.T) {
+	t.Parallel()
+
+	machine := startMachine(t, moonrakersim.Options{})
+
+	driver := moonraker.NewDriver(0)
+	endpoint := connectorapi.Endpoint{
+		Address: machine.Address(),
+		Options: map[string]string{"chamber_object": "temperature_sensor Chamber_Top"},
+	}
+	session, err := driver.Connect(t.Context(), endpoint, driver.Baseline())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	collect(t, session, map[string]string{
+		"/moonraker/unresolved": `[{"option":"chamber_object","value":"temperature_sensor Chamber_Top"}]`,
+	})
+}

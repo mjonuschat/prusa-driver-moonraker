@@ -1,6 +1,19 @@
 package moonraker
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
+)
+
+// unresolvedPath is where the driver publishes the role options that name an
+// object the machine does not list. The module's edit view reads it.
+const unresolvedPath = "/moonraker/unresolved"
+
+// detectedPath is where the driver publishes the object it settled on for each
+// role. The module's edit view shows it as the placeholder of an empty field.
+const detectedPath = "/moonraker/detected"
 
 type roleOptions struct {
 	chamber, bedFans, partFan, heatbreakFan, filament, chamberLight, chamberFan string
@@ -209,4 +222,54 @@ func (r roles) objects() []string {
 		add(o)
 	}
 	return out
+}
+
+// unresolvedPatch is the state patch that publishes the options naming an
+// object the machine does not list, as a list of {option, value}. A machine
+// with none gets a null, which removes what an earlier session published.
+func (r roles) unresolvedPatch() connectorapi.StatePatch {
+	patch := connectorapi.StatePatch{Path: unresolvedPath, Value: json.RawMessage("null")}
+	if len(r.unresolved) == 0 {
+		return patch
+	}
+
+	type entry struct {
+		Option string `json:"option"`
+		Value  string `json:"value"`
+	}
+
+	entries := make([]entry, 0, len(r.unresolved))
+	for _, miss := range r.unresolved {
+		entries = append(entries, entry{Option: miss.option, Value: miss.value})
+	}
+
+	encoded, _ := json.Marshal(entries)
+	patch.Value = encoded
+
+	return patch
+}
+
+// detectedPatch is the state patch that publishes the object behind each role,
+// by the option that names it. A role with no object is left out, so a machine
+// with nothing detected publishes an empty object, which a reader tells apart
+// from a machine that has published nothing.
+func (r roles) detectedPatch() connectorapi.StatePatch {
+	found := map[string]string{}
+	for option, object := range map[string]string{
+		"chamber_object":       r.chamber.object,
+		"bed_fans_object":      r.bedFan,
+		"part_fan_object":      r.partFan,
+		"heatbreak_fan_object": r.heatbreakFan,
+		"filament_object":      r.filament,
+		"chamber_light_object": r.light,
+		"chamber_fan_object":   r.chamberFan,
+	} {
+		if object != "" {
+			found[option] = object
+		}
+	}
+
+	encoded, _ := json.Marshal(found)
+
+	return connectorapi.StatePatch{Path: detectedPath, Value: encoded}
 }

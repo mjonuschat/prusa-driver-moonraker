@@ -268,6 +268,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	s.first = append(s.first, toolPatches(dumped, extruders)...)
 	s.first = append(s.first, buildVolumePatches(dumped)...)
 	s.first = append(s.first, opened...)
+	s.first = append(s.first, s.roles.unresolvedPatch(), s.roles.detectedPatch())
 
 	for _, patch := range opened {
 		s.noteState(patch)
