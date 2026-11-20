@@ -279,6 +279,7 @@ func (d *Driver) Baseline() connectorapi.Set {
 		ArgStartPath:      {Flag: true, Kind: connectorapi.KindString, Required: true},
 		VerbResetPrinter:  {Flag: true},
 		VerbReset:         {Flag: true},
+		VerbSetIdle:       {Flag: true},
 		VerbSendGCode:     {Flag: true},
 		ArgGCode:          gcodeArgument(),
 		VerbForceGCode:    {Flag: true},

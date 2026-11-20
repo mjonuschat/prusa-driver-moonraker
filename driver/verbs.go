@@ -48,6 +48,9 @@ const (
 	VerbResetPrinter = connectorapi.Capability("core.command.reset_printer")
 	// VerbReset restarts the host software and the machine's firmware.
 	VerbReset = connectorapi.Capability("core.command.reset")
+	// VerbSetIdle clears the result of the last print, so a finished or stopped
+	// machine reads as idle again. It is Klipper's SDCARD_RESET_FILE.
+	VerbSetIdle = connectorapi.Capability("core.command.set_idle")
 	// VerbSendGCode runs one line of gcode.
 	VerbSendGCode = connectorapi.Capability("core.command.send_gcode")
 	// ArgGCode is the line to run.
@@ -143,7 +146,7 @@ func probe(
 
 	// Klipper's virtual_sdcard section is what printer.print.start loads from.
 	if slices.Contains(available, objectVirtualSDCard) {
-		carry(claimed, resolved, VerbStartPrint, ArgStartPath)
+		carry(claimed, resolved, VerbStartPrint, ArgStartPath, VerbSetIdle)
 	}
 
 	// Listing needs the gcodes root. Changing it also needs the root to be
@@ -298,6 +301,10 @@ func forceGCodeArgument() connectorapi.Value {
 
 const gcodeArgName = "gcode"
 
+// resetFileScript unloads the file and takes print_stats back to standby, which
+// is how Klipper forgets how the last print ended.
+const resetFileScript = "SDCARD_RESET_FILE"
+
 // methodFor is the JSON-RPC call one verb becomes, and ok is false for a verb
 // this dialect sends as gcode instead.
 func methodFor(verb connectorapi.Capability) (method string, ok bool) {
@@ -348,6 +355,8 @@ func gcodeFor(cmd connectorapi.Command, chamber string) (string, error) {
 		return homeScript(cmd.Args)
 	case VerbDisableSteppers:
 		return disableSteppersScript, nil
+	case VerbSetIdle:
+		return resetFileScript, nil
 	case VerbSetSpeed:
 		return speedScript(cmd.Args)
 	case VerbSetFlow:

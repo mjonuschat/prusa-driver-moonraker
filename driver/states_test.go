@@ -76,6 +76,7 @@ func TestEveryNewVerbIsAcceptedInTheRightStates(t *testing.T) {
 		{moonraker.VerbHome, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
 		{moonraker.VerbDisableSteppers, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
 		{moonraker.VerbMeshBedLeveling, []connectorapi.StateName{"IDLE", "FINISHED", "STOPPED"}},
+		{moonraker.VerbSetIdle, []connectorapi.StateName{"FINISHED", "STOPPED"}},
 	}
 
 	for _, tc := range cases {
@@ -100,6 +101,10 @@ func TestTheTransitionsCoverShutdownAndRecovery(t *testing.T) {
 
 	for _, from := range []connectorapi.StateName{"IDLE", "PRINTING", "PAUSED", "FINISHED", "STOPPED"} {
 		require.Truef(t, declared(from, "ERROR", moonraker.VerbForceGCode), "%s to ERROR", from)
+	}
+
+	for _, from := range []connectorapi.StateName{"FINISHED", "STOPPED"} {
+		require.Truef(t, declared(from, "IDLE", moonraker.VerbSetIdle), "%s to IDLE", from)
 	}
 
 	require.True(t, declared("ERROR", "IDLE", moonraker.VerbResetPrinter))

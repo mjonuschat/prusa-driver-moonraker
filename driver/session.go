@@ -175,6 +175,9 @@ type Session struct {
 	// which is the only goroutine allowed to act on it.
 	expired       chan uint64
 	estimateRetry chan uint64
+	// released tells the reader that set_idle cleared the last print, so it
+	// ends the hold on that print's end word. The reader owns that word.
+	released      chan struct{}
 	estimateTimer *time.Timer
 
 	dropped atomic.Uint64
@@ -205,6 +208,7 @@ func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log 
 		done:          make(chan struct{}),
 		expired:       make(chan uint64, expiredBacklog),
 		estimateRetry: make(chan uint64, 1),
+		released:      make(chan struct{}, 1),
 	}
 }
 
@@ -515,6 +519,13 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 		}
 
 		return connectorapi.Result{OK: false, MachineReason: refusal.Message}, nil
+	}
+
+	if cmd.Verb == VerbSetIdle {
+		select {
+		case s.released <- struct{}{}:
+		default:
+		}
 	}
 
 	return connectorapi.Result{OK: true, Raw: result}, nil
@@ -830,6 +841,10 @@ func (s *Session) read() {
 			}
 
 			s.dispatch(message.data)
+		case <-s.released:
+			for _, patch := range s.reader.machine.release(nil) {
+				s.report(patch)
+			}
 		case id := <-s.expired:
 			s.expire(id)
 		case generation := <-s.estimateRetry:

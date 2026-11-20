@@ -470,6 +470,29 @@ func (m *machineState) appendState(
 	return append(out, connectorapi.StatePatch{Path: statePath, Value: encoded})
 }
 
+// release ends the hold on the last print's end word, because the operator
+// cleared it. When Klipper is already in standby, nothing else will say so, so
+// it returns the idle word. While Klipper still reports the end of the print,
+// the standby that follows is read as idle without it.
+func (m *machineState) release(out []connectorapi.StatePatch) []connectorapi.StatePatch {
+	if m.held == "" {
+		return out
+	}
+
+	m.held = ""
+
+	if m.print != klipperStandby || (m.hook != "" && m.hook != "ready") {
+		return out
+	}
+
+	encoded, err := json.Marshal(stateWords[klipperStandby])
+	if err != nil {
+		return out
+	}
+
+	return append(out, connectorapi.StatePatch{Path: statePath, Value: encoded})
+}
+
 // klipperStandby is print_stats.state when no print is loaded.
 const klipperStandby = "standby"
 

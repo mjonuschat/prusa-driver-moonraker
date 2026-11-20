@@ -7,6 +7,12 @@ Write the entry in the same change as the code. One bullet per behaviour a
 person outside this repository can observe: a route, a setting, a screen, a
 refusal. Name the route and the setting key, never a function or a file.
 
+## 0.1.0-rc.2 - unreleased
+
+### Added
+
+- Moonraker: `core.command.set_idle` ("Exit idle" on the printer's page). After a print has finished or been stopped, it clears the result and the machine reads as idle again. It is refused while a print is running or paused, and it needs the machine's `virtual_sdcard` section.
+
 ## 0.1.0-rc.1 - 2026-11-20
 
 ### Added
