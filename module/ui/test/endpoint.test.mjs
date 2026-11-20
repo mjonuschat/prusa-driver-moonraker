@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { endpointWrite } from '../src/endpoint.ts';
+import { endpointWrite, rolesChanged, rolesOf } from '../src/endpoint.ts';
 
 const form = {
   name: 'voron',
@@ -16,6 +16,19 @@ await test('a new endpoint is created only if its name is unused', () => {
   assert.equal(request.path.name, 'voron');
   assert.deepEqual(request.header, { 'If-None-Match': '*' });
   assert.equal(request.body.address, 'printer.local');
+});
+
+await test('unchanged hardware roles do not require a save', () => {
+  const options = {
+    chamber_object: 'temperature_sensor Chamber',
+    unit_uid: 'voron',
+  };
+  assert.equal(rolesChanged(options, rolesOf(options)), false);
+  assert.equal(
+    rolesChanged(options, { ...rolesOf(options), chamber_object: 'none' }),
+    true,
+  );
+  assert.equal(rolesChanged(undefined, rolesOf(undefined)), false);
 });
 
 await test('correcting a created endpoint uses its version and the same name', () => {

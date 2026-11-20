@@ -21,7 +21,7 @@
     Input,
   } from '@prusa/connect-ui/primitives';
 
-  import { rolesOf, updateBody, withRoles } from './endpoint';
+  import { rolesChanged, rolesOf, updateBody, withRoles } from './endpoint';
   import type { RoleKey, RoleValues } from './endpoint';
   import { heldHost } from './host';
   import {
@@ -80,6 +80,7 @@
   let values = $state<RoleValues>(rolesOf(machine.options));
   let saving = $state(false);
   let failure = $state<Error | undefined>();
+  let unchanged = $state(false);
   // The printer's capability_epoch when the save went through. It moves when
   // the host dials the machine again, which is when the driver checks the
   // names, so a later epoch means the warnings below are about this save.
@@ -116,9 +117,17 @@
 
   const set = (key: RoleKey, value: string): void => {
     values[key] = value;
+    unchanged = false;
   };
 
   const save = async (): Promise<void> => {
+    if (!rolesChanged(machine.options, values)) {
+      failure = undefined;
+      unchanged = true;
+
+      return;
+    }
+    unchanged = false;
     saving = true;
     failure = undefined;
     try {
@@ -156,7 +165,11 @@
       <FaultAlert {fault} />
     {/if}
 
-    {#if savedEpoch !== undefined}
+    {#if unchanged}
+      <Alert data-part="save-status">
+        <AlertTitle>{t('machines.mapping.unchanged')}</AlertTitle>
+      </Alert>
+    {:else if savedEpoch !== undefined}
       <Alert
         variant={checked && missing.length > 0 ? 'warning' : 'default'}
         data-part="save-status"

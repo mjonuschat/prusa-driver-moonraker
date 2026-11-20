@@ -160,6 +160,20 @@ export const withRoles = (
   return next;
 };
 
+/** Whether saving these roles would change the endpoint options. */
+export const rolesChanged = (
+  options: Record<string, string> | undefined,
+  values: RoleValues,
+): boolean => {
+  const previous = options ?? {};
+  const next = withRoles(options, values);
+
+  return (
+    Object.keys(previous).length !== Object.keys(next).length ||
+    Object.entries(next).some(([key, value]) => previous[key] !== value)
+  );
+};
+
 export const updateBody = (
   endpoint: {
     address: string;
