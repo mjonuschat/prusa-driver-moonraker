@@ -1,0 +1,43 @@
+# Security updates only. A limit of 0 turns off version updates, and security
+# updates are not counted against it. Security updates also need "Dependabot
+# security updates" turned on under Settings > Advanced Security.
+#
+# The prusa-connect submodule is not listed. It moves by hand with
+# `make update-core`, and module/ui's links into it move with it.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      gomod-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /module/ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(ui)"
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
