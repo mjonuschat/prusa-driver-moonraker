@@ -25,6 +25,26 @@ func TestMetadataTimeoutIsRetriedWithoutAnotherStatusUpdate(t *testing.T) {
 	require.Eventually(t, func() bool { return len(machine.CallTimes("server.files.metadata")) >= 2 }, 3*time.Second, 10*time.Millisecond)
 }
 
+func TestPausedPrintAtConnectReportsRemainingWithoutFurtherUpdates(t *testing.T) {
+	status := moonrakersim.DefaultStatus()
+	status["print_stats"] = map[string]any{
+		"state": "paused", "filename": "models/part.gcode", "print_duration": 100.0,
+	}
+	status["display_status"] = map[string]any{"progress": 0.5}
+	machine := startMachine(t, moonrakersim.Options{Status: status, EstimatedTime: 1000})
+	collect(t, connect(t, machine), map[string]string{"/job/time_remaining": "500"})
+}
+
+func TestMetadataReplyReportsRemainingWithoutFurtherUpdates(t *testing.T) {
+	machine := startMachine(t, moonrakersim.Options{EstimatedTime: 1000})
+	session := connect(t, machine)
+	machine.Push(map[string]map[string]any{
+		"print_stats":    {"state": "printing", "filename": "models/part.gcode", "print_duration": 1.0},
+		"display_status": {"progress": 0.5},
+	})
+	collect(t, session, map[string]string{"/job/time_remaining": "500"})
+}
+
 func TestARunningPrintReportsItsTimeRemaining(t *testing.T) {
 	t.Parallel()
 

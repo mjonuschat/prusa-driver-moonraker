@@ -766,6 +766,8 @@ func (s *Session) read() {
 		}
 	}()
 
+	s.askEstimate()
+
 	if s.spool.isEnabled() {
 		s.refreshSpool()
 	}
@@ -948,6 +950,9 @@ func (s *Session) askEstimate() {
 		}
 
 		s.reader.prints.estimate, s.reader.prints.estimateFile = reply.EstimatedTime, file
+		for _, patch := range s.reader.prints.appendRemaining(nil, nil, nil) {
+			s.report(patch)
+		}
 	})
 	if err != nil {
 		s.log.Debug("the estimate of the file printing could not be asked for", "error", err.Error())
