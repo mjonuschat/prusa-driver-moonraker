@@ -71,6 +71,10 @@ func TestEveryNewVerbIsAcceptedInTheRightStates(t *testing.T) {
 		{connectorapi.VerbDeleteFile, all},
 		{connectorapi.VerbDeleteFolder, all},
 		{connectorapi.VerbFileUpload, all},
+		{moonraker.VerbMove, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
+		{moonraker.VerbMoveZ, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
+		{moonraker.VerbHome, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
+		{moonraker.VerbDisableSteppers, []connectorapi.StateName{"IDLE", "PAUSED", "FINISHED", "STOPPED"}},
 	}
 
 	for _, tc := range cases {

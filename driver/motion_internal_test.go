@@ -1,6 +1,7 @@
 package moonraker
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -122,5 +123,38 @@ func TestNoScriptCarriesALineBreakInAnArgument(t *testing.T) {
 		require.Error(t, err, bad)
 		_, err = homeScript(map[string]string{"axis": bad})
 		require.Error(t, err, bad)
+	}
+}
+
+func TestMotionLimitsReadTheConfiguration(t *testing.T) {
+	t.Parallel()
+
+	dump := func(settings map[string]string) configDump {
+		out := configDump{Settings: map[string]json.RawMessage{}}
+		for key, raw := range settings {
+			out.Settings[key] = json.RawMessage(raw)
+		}
+
+		return out
+	}
+
+	cases := []struct {
+		name string
+		in   map[string]string
+		want motionLimits
+	}{
+		{"all present", map[string]string{
+			"printer":   `{"max_velocity": 300, "max_z_velocity": 15}`,
+			"stepper_x": `{"position_min": -5, "position_max": 300}`,
+			"stepper_y": `{"position_max": 250}`,
+			"stepper_z": `{"position_min": 0, "position_max": 200}`,
+		}, motionLimits{300, 15, [3]float64{305, 250, 200}}},
+		{"nothing", map[string]string{}, motionLimits{}},
+		{"no max_z_velocity", map[string]string{"printer": `{"max_velocity": 100}`}, motionLimits{maxVelocity: 100}},
+		{"inverted stepper", map[string]string{"stepper_x": `{"position_min": 10, "position_max": 5}`}, motionLimits{}},
+	}
+
+	for _, tc := range cases {
+		require.Equal(t, tc.want, motionLimitsOf(dump(tc.in)), tc.name)
 	}
 }

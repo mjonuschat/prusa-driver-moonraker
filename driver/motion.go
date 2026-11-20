@@ -1,6 +1,7 @@
 package moonraker
 
 import (
+	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -11,14 +12,14 @@ import (
 
 const (
 	VerbMove            = connectorapi.Capability("core.command.move")
-	ArgMoveFeedrate     = connectorapi.Capability("move#feedrate")
-	ArgMoveX            = connectorapi.Capability("move#x")
-	ArgMoveY            = connectorapi.Capability("move#y")
+	ArgMoveFeedrate     = connectorapi.Capability("core.command.move#feedrate")
+	ArgMoveX            = connectorapi.Capability("core.command.move#x")
+	ArgMoveY            = connectorapi.Capability("core.command.move#y")
 	VerbMoveZ           = connectorapi.Capability("core.command.move_z")
-	ArgMoveZFeedrate    = connectorapi.Capability("move_z#feedrate")
-	ArgMoveZDistance    = connectorapi.Capability("move_z#distance")
+	ArgMoveZFeedrate    = connectorapi.Capability("core.command.move_z#feedrate")
+	ArgMoveZDistance    = connectorapi.Capability("core.command.move_z#distance")
 	VerbHome            = connectorapi.Capability("core.command.home")
-	ArgHomeAxis         = connectorapi.Capability("home#axis")
+	ArgHomeAxis         = connectorapi.Capability("core.command.home#axis")
 	VerbDisableSteppers = connectorapi.Capability("core.command.disable_steppers")
 )
 
@@ -176,4 +177,149 @@ func homeScript(args map[string]string) (string, error) {
 	}
 
 	return strings.Join(words, " "), nil
+}
+
+// The outer ceilings the baseline declares. They never narrow a machine.
+// The probe narrows them to the machine's own figures.
+const (
+	moveFeedrateCeiling  = 60000
+	moveZFeedrateCeiling = 6000
+	stepCeiling          = 5000
+
+	// The fallbacks the probe uses only when the machine's own figure cannot
+	// be read. They live in the probe because the handshake intersects the
+	// baseline with it.
+	moveFeedrateFallback  = 6000
+	moveZFeedrateFallback = 600
+	stepFallback          = 1000
+)
+
+func feedrateArgument(ceiling float64) connectorapi.Value {
+	return connectorapi.Value{
+		Flag: true, Kind: connectorapi.KindInteger, Required: true,
+		Min: 1, HasMin: true, Limit: ceiling, HasLimit: true,
+		Unit: connectorapi.UnitMillimeterPerMinute,
+	}
+}
+
+func stepArgument(required bool) connectorapi.Value {
+	return connectorapi.Value{
+		Flag: true, Kind: connectorapi.KindNumber, Required: required,
+		Min: -stepCeiling, HasMin: true, Limit: stepCeiling, HasLimit: true,
+		Unit: connectorapi.UnitMillimeter,
+	}
+}
+
+func motionBaseline() connectorapi.Set {
+	return connectorapi.Set{
+		VerbMove:            {Flag: true},
+		ArgMoveFeedrate:     feedrateArgument(moveFeedrateCeiling),
+		ArgMoveX:            stepArgument(false),
+		ArgMoveY:            stepArgument(false),
+		VerbMoveZ:           {Flag: true},
+		ArgMoveZFeedrate:    feedrateArgument(moveZFeedrateCeiling),
+		ArgMoveZDistance:    stepArgument(true),
+		VerbHome:            {Flag: true},
+		ArgHomeAxis:         {Flag: true, Kind: connectorapi.KindString},
+		VerbDisableSteppers: {Flag: true},
+	}
+}
+
+// motionLimits are the machine's own figures, with zero meaning unknown.
+type motionLimits struct {
+	maxVelocity, maxZVelocity float64
+	travel                    [3]float64
+}
+
+type printerSection struct {
+	MaxVelocity  *float64 `json:"max_velocity"`
+	MaxZVelocity *float64 `json:"max_z_velocity"`
+}
+
+func finitePositive(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+func motionLimitsOf(dumped configDump) motionLimits {
+	var out motionLimits
+
+	var printer printerSection
+	if json.Unmarshal(dumped.Settings["printer"], &printer) == nil {
+		if printer.MaxVelocity != nil && finitePositive(*printer.MaxVelocity) {
+			out.maxVelocity = *printer.MaxVelocity
+		}
+
+		if printer.MaxZVelocity != nil && finitePositive(*printer.MaxZVelocity) {
+			out.maxZVelocity = *printer.MaxZVelocity
+		}
+	}
+
+	for i, axis := range axisSections {
+		var bounds stepperBounds
+		if json.Unmarshal(dumped.Settings[axis.section], &bounds) != nil || bounds.PositionMax == nil {
+			continue
+		}
+
+		low := 0.0
+		if bounds.PositionMin != nil {
+			low = *bounds.PositionMin
+		}
+
+		if span := *bounds.PositionMax - low; finitePositive(span) {
+			out.travel[i] = span
+		}
+	}
+
+	return out
+}
+
+func carryMotion(into, from connectorapi.Set, limits motionLimits) {
+	carry(into, from, VerbMove, VerbMoveZ, VerbHome, VerbDisableSteppers, ArgHomeAxis)
+
+	rate := func(key connectorapi.Capability, velocity, fallback float64) {
+		declared, present := from[key]
+		if !present {
+			return
+		}
+
+		figure := fallback
+		if velocity > 0 {
+			figure = velocity * 60
+		}
+
+		narrowLimit(&declared, figure)
+		into[key] = declared
+	}
+
+	rate(ArgMoveFeedrate, limits.maxVelocity, moveFeedrateFallback)
+	rate(ArgMoveZFeedrate, limits.maxZVelocity, moveZFeedrateFallback)
+
+	step := func(key connectorapi.Capability, span float64) {
+		declared, present := from[key]
+		if !present {
+			return
+		}
+
+		if span <= 0 {
+			span = stepFallback
+		}
+
+		narrowLimit(&declared, span)
+
+		if !declared.HasMin || declared.Min < -span {
+			declared.Min = -span
+			declared.HasMin = true
+		}
+
+		into[key] = declared
+	}
+
+	step(ArgMoveX, limits.travel[0])
+	step(ArgMoveY, limits.travel[1])
+	step(ArgMoveZDistance, limits.travel[2])
+}
+
+func narrowLimit(value *connectorapi.Value, figure float64) {
+	if !value.HasLimit || figure < value.Limit {
+		value.Limit = figure
+		value.HasLimit = true
+	}
 }

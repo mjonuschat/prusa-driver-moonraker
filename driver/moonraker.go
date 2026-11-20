@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -261,7 +262,7 @@ const (
 // Klipper configuration uses. Connect narrows them to the machine's own
 // min_temp and max_temp.
 func (d *Driver) Baseline() connectorapi.Set {
-	return connectorapi.Set{
+	set := connectorapi.Set{
 		VerbSendStateInfo: {Flag: true},
 		VerbPausePrint:    {Flag: true},
 		VerbResumePrint:   {Flag: true},
@@ -289,6 +290,10 @@ func (d *Driver) Baseline() connectorapi.Set {
 		connectorapi.VerbDeleteFolder: {Flag: true},
 		connectorapi.VerbFileUpload:   {Flag: true},
 	}
+
+	maps.Copy(set, motionBaseline())
+
+	return set
 }
 
 // Connect dials the machine, runs the identity exchange and the live probe,

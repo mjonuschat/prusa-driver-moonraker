@@ -115,7 +115,7 @@ func temperatureArgument(ceiling float64) connectorapi.Value {
 // the heater bounds this function sets on purpose.
 func probe(
 	available []string, heaters map[string]heaterConfig, extruders int, gcodes gcodesState, chamber chamberRole,
-	resolved connectorapi.Set,
+	limits motionLimits, resolved connectorapi.Set,
 ) connectorapi.Set {
 	claimed := connectorapi.Set{}
 
@@ -163,6 +163,10 @@ func probe(
 	// override naming a non-heater, is offered nothing.
 	if chamber.heater {
 		carryHeater(claimed, resolved, VerbChamberTarget, ArgChamberTarget, heaters[strings.ToLower(chamber.object)])
+	}
+
+	if slices.Contains(available, objectToolhead) {
+		carryMotion(claimed, resolved, limits)
 	}
 
 	return claimed

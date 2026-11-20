@@ -132,7 +132,7 @@ type Session struct {
 	// has reported one.
 	machineState atomic.Pointer[string]
 
-	spool spoolman
+	spool    spoolman
 	requests sync.Map
 	// expired carries the id of a request whose timer fired to the reader,
 	// which is the only goroutine allowed to act on it.
@@ -250,7 +250,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		s.noteState(patch)
 	}
 
-	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, offered)
+	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped), offered)
 
 	return offered.Intersect(s.probe), nil
 }

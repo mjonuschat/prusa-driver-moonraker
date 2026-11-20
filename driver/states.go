@@ -38,6 +38,7 @@ func states() connectorapi.StateSet {
 		connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
 		connectorapi.VerbFileUpload,
 	}
+	motion := []connectorapi.Capability{VerbMove, VerbMoveZ, VerbHome, VerbDisableSteppers}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -48,13 +49,13 @@ func states() connectorapi.StateSet {
 
 	return connectorapi.StateSet{
 		States: []connectorapi.DeviceState{
-			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files)},
+			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
 				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files)},
-			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files)},
-			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files)},
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion)},
+			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion)},
+			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},
 		},
 		Transitions: []connectorapi.Transition{
