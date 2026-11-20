@@ -27,7 +27,11 @@
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-CHECKOUT=/Users/mjonuschat/Documents/Development/prusa-driver-moonraker/prusa-connect
+if [ ! -f "$HERE/../prusa-connect/go.mod" ]; then
+	echo "FAIL  prusa-connect is missing. Initialize the submodule first."
+	exit 1
+fi
+CHECKOUT=$(cd "$HERE/../prusa-connect" && pwd)
 
 NAME=machines
 MODULE=github.com/mjonuschat/prusa-driver-moonraker
