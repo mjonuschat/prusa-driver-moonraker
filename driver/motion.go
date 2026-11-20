@@ -329,7 +329,7 @@ func isJog(verb connectorapi.Capability) bool {
 }
 
 func isMotion(verb connectorapi.Capability) bool {
-	return isJog(verb) || verb == VerbHome || verb == VerbDisableSteppers
+	return isJog(verb) || verb == VerbHome || verb == VerbDisableSteppers || verb == VerbMeshBedLeveling
 }
 
 // takesMotionLock is true for the verbs that must not interleave with a jog:

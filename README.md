@@ -26,6 +26,21 @@ Offered when the machine lists the `toolhead` object. Each verb is one `printer.
 - A jog and its restore run as one unit. A second motion verb waits for the first.
 - Z+ is Klipper's Z+. The driver sends `distance` as given and never inverts it.
 
+## Level bed
+
+`core.command.mesh_bed_leveling` is offered when the machine lists `z_tilt` or `quad_gantry_level`. It takes no arguments and runs one `printer.gcode.script` call.
+
+| Object listed | Gcode |
+| --- | --- |
+| `z_tilt` | `Z_TILT_ADJUST` |
+| `quad_gantry_level` | `QUAD_GANTRY_LEVEL` |
+
+- A machine that lists both is levelled with `Z_TILT_ADJUST`, and the driver logs a warning when it connects.
+- Accepted in IDLE, FINISHED and STOPPED. Refused in PRINTING, PAUSED and ERROR, and until the first state is known.
+- Klipper's own refusals, such as an unhomed machine, are returned with its message. The driver does not check homing.
+- The driver waits up to 5 minutes for the answer, and `home` up to 60 seconds, where other calls wait for the timeout option (10 seconds by default). A timeout longer than that wait is kept.
+- It takes the same lock as the motion verbs, so it does not interleave with a jog.
+
 ## Files
 
 - One storage, `gcodes`, is shown. There is no other root.

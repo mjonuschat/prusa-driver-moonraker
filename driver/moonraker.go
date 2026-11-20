@@ -284,6 +284,8 @@ func (d *Driver) Baseline() connectorapi.Set {
 		VerbForceGCode:    {Flag: true},
 		ArgForceGCode:     forceGCodeArgument(),
 
+		VerbMeshBedLeveling: {Flag: true},
+
 		connectorapi.VerbSendInfo:     {Flag: true},
 		connectorapi.VerbSendFileInfo: {Flag: true},
 		connectorapi.VerbCreateFolder: {Flag: true},

@@ -169,6 +169,10 @@ func probe(
 		carryMotion(claimed, resolved, limits)
 	}
 
+	if command, _ := levelCommandOf(available); command != "" {
+		carry(claimed, resolved, VerbMeshBedLeveling)
+	}
+
 	return claimed
 }
 

@@ -71,6 +71,10 @@ type Session struct {
 	// resume cannot run between them.
 	motion sync.Mutex
 
+	// levelling is the gcode command that levels this machine, or empty when
+	// it lists no levelling object. It is set during the handshake.
+	levelling string
+
 	conn    *websocket.Conn
 	timeout time.Duration
 	live    liveness
@@ -255,6 +259,14 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		s.noteState(patch)
 	}
 
+	var both bool
+
+	s.levelling, both = levelCommandOf(listed.Objects)
+	if both {
+		s.log.Warn("the machine lists z_tilt and quad_gantry_level, so Level bed runs "+zTiltScript,
+			"command", s.levelling)
+	}
+
 	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped), offered)
 
 	return offered.Intersect(s.probe), nil
@@ -436,7 +448,7 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 		return connectorapi.Result{}, err
 	}
 
-	result, refusal, err := s.call(ctx, method, params)
+	result, refusal, err := s.callWithin(ctx, method, params, waitFor(cmd.Verb, s.timeout))
 	if err != nil {
 		// Klipper restarts by hanging up, so the lost connection is the answer.
 		if restarts(cmd.Verb) && errors.Is(err, ErrSessionEnded) {
@@ -505,6 +517,14 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 	}
 
 	switch cmd.Verb {
+	case VerbMeshBedLeveling:
+		if s.levelling == "" {
+			return "", nil, connectorapi.CapabilityNotSupported.
+				New("the printer lists no levelling object").
+				With(fault.StringParam("verb", cmd.Verb.String()))
+		}
+
+		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
 	case VerbSendGCode:
 		line, lineErr := gcodeLine(cmd.Args[gcodeArgName])
 		if lineErr != nil {
@@ -537,6 +557,13 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 func (s *Session) call(
 	ctx context.Context, method string, params any,
 ) (result json.RawMessage, refusal *rpcError, err error) {
+	return s.callWithin(ctx, method, params, s.timeout)
+}
+
+// callWithin is call with its own wait for the answer.
+func (s *Session) callWithin(
+	ctx context.Context, method string, params any, wait time.Duration,
+) (result json.RawMessage, refusal *rpcError, err error) {
 	// Before the write and not only around the wait. A caller who has already
 	// given up must not move the machine, and a pause the caller cancelled is
 	// still a pause once it is on the wire.
@@ -554,7 +581,7 @@ func (s *Session) call(
 		return nil, nil, err
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	callCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 
 	select {

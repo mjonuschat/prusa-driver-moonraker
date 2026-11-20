@@ -39,6 +39,8 @@ func states() connectorapi.StateSet {
 		connectorapi.VerbFileUpload,
 	}
 	motion := []connectorapi.Capability{VerbMove, VerbMoveZ, VerbHome, VerbDisableSteppers}
+	// Levelling is held back while a print is on the bed, paused or not.
+	levelling := []connectorapi.Capability{VerbMeshBedLeveling}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -49,13 +51,13 @@ func states() connectorapi.StateSet {
 
 	return connectorapi.StateSet{
 		States: []connectorapi.DeviceState{
-			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion)},
+			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion, levelling)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
 				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
 				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion)},
-			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion)},
-			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion)},
+			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion, levelling)},
+			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion, levelling)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},
 		},
 		Transitions: []connectorapi.Transition{
