@@ -52,7 +52,7 @@ func TestTheSweepListsTheFixedPathsAndTheRememberedOnesMinusWhatWasWritten(t *te
 
 	for _, want := range []string{
 		"/temperature/chamber_target", "/fan/print/speed", "/fan/heatbreak/rpm", "/fan/bed/speed",
-		"/job/layer", "/job/layer_count", "/dialog/id", "/dialog/title", "/dialog/text",
+		"/job/layer", "/job/layer_count", "/job/time_remaining", "/dialog/id", "/dialog/title", "/dialog/text",
 		"/sensors/box/temperature",
 	} {
 		if !slices.Contains(got, want) {

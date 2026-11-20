@@ -51,8 +51,9 @@ func sweepPaths(heads int, remembered []string, written map[string]struct{}) []s
 		// The contract reads any patch under /job/ as a reported print and wants
 		// /job/id among them. A stale id is wrong to leave behind in any case, and
 		// the opening reading writes the live one after the sweep.
-		connectorapi.JobIDPath: {},
-		dialogIDPath:           {}, dialogTitlePath: {}, dialogTextPath: {},
+		connectorapi.JobIDPath:            {},
+		connectorapi.JobTimeRemainingPath: {},
+		dialogIDPath:                      {}, dialogTitlePath: {}, dialogTextPath: {},
 	}
 
 	for _, path := range spoolPaths {

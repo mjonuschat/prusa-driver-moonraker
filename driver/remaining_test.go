@@ -72,7 +72,9 @@ func TestAPrintWhoseFileHasNoEstimateReportsNoTimeRemaining(t *testing.T) {
 	for {
 		select {
 		case patch := <-patches:
-			require.NotEqual(t, "/job/time_remaining", patch.Path)
+			if patch.Path == "/job/time_remaining" {
+				require.JSONEq(t, "null", string(patch.Value))
+			}
 		case <-deadline:
 			return
 		}
