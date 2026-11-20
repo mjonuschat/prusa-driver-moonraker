@@ -83,6 +83,17 @@ assert_contains "publish checks out the whole history" "$publish" "fetch-depth: 
 assert_contains "publish has contents: write" "$publish" "contents: write"
 assert_contains "publish writes SHA256SUMS" "$publish" "SHA256SUMS"
 
+# install.sh is stamped with the release version, after the check of the
+# downloaded assets and before SHA256SUMS, so the sums list it.
+assert_contains "publish stamps install.sh with the release version" "$publish" 'DEFAULT_VERSION=${VERSION}'
+assert_contains "publish attaches the stamped install.sh" "$publish" "assets/install.sh"
+assert_contains "publish takes the stamp from verify" "$publish" "needs.verify.outputs.version"
+stage_check=$(printf '%s\n' "$publish" | grep -n 'Check exactly the expected assets' | head -n 1 | cut -d: -f1)
+stage_stamp=$(printf '%s\n' "$publish" | grep -n 'DEFAULT_VERSION=' | head -n 1 | cut -d: -f1)
+stage_sums=$(printf '%s\n' "$publish" | grep -n 'Write SHA256SUMS' | head -n 1 | cut -d: -f1)
+[ -n "$stage_check" ] && [ -n "$stage_stamp" ] && [ -n "$stage_sums" ] && [ "$stage_check" -lt "$stage_stamp" ] && [ "$stage_stamp" -lt "$stage_sums" ] ||
+	fail "the stamp comes after the asset check and before SHA256SUMS (lines $stage_check, $stage_stamp, $stage_sums)"
+pass "the stamp comes after the asset check and before SHA256SUMS"
 assert_contains "publish attaches the config as config.docker.yaml" "$publish" "config.docker.yaml"
 assert_contains "publish attaches the compose file as compose.yaml" "$publish" "compose.yaml"
 assert_contains "publish verifies the tag exists" "$publish" "--verify-tag"

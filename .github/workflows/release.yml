@@ -237,13 +237,15 @@ jobs:
           diff "$RUNNER_TEMP/expected" "$RUNNER_TEMP/found"
 
       # The compose file is pinned to this release's image.
-      - name: Attach the deployment files
+      - name: Attach the deployment files and the installer
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -eu
           cp docker/config.yaml assets/config.docker.yaml
           sed "s|prusa-driver-moonraker:latest|prusa-driver-moonraker:${VERSION}|" docker/compose.yaml > assets/compose.yaml
+          sed "s/^DEFAULT_VERSION=.*/DEFAULT_VERSION=${VERSION}/" install.sh > assets/install.sh
+          grep -q "^DEFAULT_VERSION=${VERSION}\$" assets/install.sh
 
       - name: Write SHA256SUMS
         run: |

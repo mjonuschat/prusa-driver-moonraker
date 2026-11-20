@@ -42,7 +42,7 @@ test-scripts:
 		case $$t in */config.test.sh|*/image.test.sh) continue ;; esac; \
 		echo "== $$t"; sh $$t; \
 	done
-	shellcheck -x scripts/*.sh scripts/test/*.sh
+	shellcheck -x install.sh scripts/*.sh scripts/test/*.sh
 
 # The smoke tests. BINARY is a composed server, BUNDLE a built module/ui/dist,
 # IMAGE an image name. The image test runs only when IMAGE is set, and with

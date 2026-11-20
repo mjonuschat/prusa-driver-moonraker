@@ -286,7 +286,7 @@ jobs:
         run: actionlint
 
       - name: Lint the scripts
-        run: shellcheck -x scripts/*.sh scripts/test/*.sh
+        run: shellcheck -x install.sh scripts/*.sh scripts/test/*.sh
 
   # The behavioural tests of every script. The smoke tests need a built server
   # and image, and run in build and image.
