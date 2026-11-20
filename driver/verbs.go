@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
 )
@@ -34,6 +35,10 @@ const (
 	VerbBedTarget = connectorapi.Capability("core.command.set_bed_temperature")
 	// ArgBedTarget is the bed target, in whole degrees celsius.
 	ArgBedTarget = connectorapi.Capability("core.command.set_bed_temperature#bed_temperature")
+	// VerbChamberTarget sets the chamber heater's target temperature.
+	VerbChamberTarget = connectorapi.Capability("core.command.set_chamber_target_temp")
+	// ArgChamberTarget is the chamber target, in whole degrees celsius.
+	ArgChamberTarget = connectorapi.Capability("core.command.set_chamber_target_temp#chamber.target_temp")
 	// VerbStartPrint starts printing a file the machine already holds.
 	VerbStartPrint = connectorapi.Capability("core.command.start_print")
 	// ArgStartPath is the file to print, as the storage-prefixed path List
@@ -58,8 +63,9 @@ const (
 // configured anywhere from 260 to 500, and the machine's own max_temp narrows
 // these the moment it is read.
 const (
-	nozzleCeiling = 500
-	bedCeiling    = 200
+	nozzleCeiling  = 500
+	bedCeiling     = 250
+	chamberCeiling = 250
 )
 
 // The Klipper heater names the two temperature verbs address. They are the
@@ -73,9 +79,10 @@ const (
 // The argument names the two temperature verbs carry, as the vocabulary spells
 // them.
 const (
-	nozzleArgument = "nozzle_temperature"
-	toolArgument   = "tool"
-	bedArgument    = "bed_temperature"
+	nozzleArgument  = "nozzle_temperature"
+	toolArgument    = "tool"
+	bedArgument     = "bed_temperature"
+	chamberArgument = "chamber.target_temp"
 )
 
 // toolArgumentValue is the head argument of the nozzle verb, from 0 with no
@@ -107,7 +114,8 @@ func temperatureArgument(ceiling float64) connectorapi.Value {
 // is copied from the resolved set so that the intersection changes nothing but
 // the heater bounds this function sets on purpose.
 func probe(
-	available []string, heaters map[string]heaterConfig, extruders int, gcodes gcodesState, resolved connectorapi.Set,
+	available []string, heaters map[string]heaterConfig, extruders int, gcodes gcodesState, chamber chamberRole,
+	resolved connectorapi.Set,
 ) connectorapi.Set {
 	claimed := connectorapi.Set{}
 
@@ -149,6 +157,12 @@ func probe(
 
 	if slices.Contains(available, objectHeaterBed) {
 		carryHeater(claimed, resolved, VerbBedTarget, ArgBedTarget, heaters[heaterBed])
+	}
+
+	// Only a chamber that is a heater has a target to set. A sensor, or an
+	// override naming a non-heater, is offered nothing.
+	if chamber.heater {
+		carryHeater(claimed, resolved, VerbChamberTarget, ArgChamberTarget, heaters[strings.ToLower(chamber.object)])
 	}
 
 	return claimed
@@ -205,19 +219,21 @@ func carryTool(into, from connectorapi.Set, extruders int) {
 	into[ArgNozzleTool] = declared
 }
 
-// heaterSections is the two Klipper sections this dialect reads bounds from.
-//
-//nolint:gochecknoglobals // a fixed list, read-only after init.
-var heaterSections = []string{heaterExtruder, heaterBed}
+// heaterBounds reads the heater sections out of the machine's configuration
+// dump. configfile.settings keys are lowercase, so the chamber section is
+// looked up by the lowercase object name. A section that is not there, or that
+// this build cannot read, is absent rather than a refusal. The bounds narrow a
+// descriptor, so failing to read one leaves the ceiling this driver already
+// declared.
+func heaterBounds(dumped configDump, chamber chamberRole) map[string]heaterConfig {
+	sections := []string{heaterExtruder, heaterBed}
+	if chamber.heater {
+		sections = append(sections, strings.ToLower(chamber.object))
+	}
 
-// heaterBounds reads the two heater sections out of the machine's configuration
-// dump. A section that is not there, or that this build cannot read, is absent
-// rather than a refusal: the bounds narrow a descriptor, so failing to read one
-// leaves the ceiling this driver already declared.
-func heaterBounds(dumped configDump) map[string]heaterConfig {
-	out := make(map[string]heaterConfig, len(heaterSections))
+	out := make(map[string]heaterConfig, len(sections))
 
-	for _, section := range heaterSections {
+	for _, section := range sections {
 		raw, present := dumped.Settings[section]
 		if !present {
 			continue
@@ -284,12 +300,14 @@ func restarts(verb connectorapi.Capability) bool {
 //
 // SET_HEATER_TEMPERATURE is Klipper's own command and returns as soon as the
 // target is set, so a caller is not held for the minutes a heater takes.
-func gcodeFor(cmd connectorapi.Command) (string, error) {
+func gcodeFor(cmd connectorapi.Command, chamber string) (string, error) {
 	switch cmd.Verb {
 	case VerbNozzleTarget:
 		return nozzleScript(cmd)
 	case VerbBedTarget:
 		return heaterScript(heaterBed, cmd.Verb, cmd.Args[bedArgument])
+	case VerbChamberTarget:
+		return heaterScript(heaterName(chamber), cmd.Verb, cmd.Args[chamberArgument])
 	default:
 		return "", fmt.Errorf("moonraker: %s reaches no call and no gcode line", cmd.Verb)
 	}

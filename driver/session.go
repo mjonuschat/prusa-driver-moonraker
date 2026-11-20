@@ -206,7 +206,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		return nil, err
 	}
 
-	heaters := heaterBounds(dumped)
+	heaters := heaterBounds(dumped, s.roles.chamber)
 
 	// Storage is read before subscribing: callSync drops notifications while it
 	// waits, so no status update may be in flight yet.
@@ -229,7 +229,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 		s.noteState(patch)
 	}
 
-	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, offered)
+	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, offered)
 
 	return offered.Intersect(s.probe), nil
 }
@@ -481,7 +481,7 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		return named, nil, nil
 	}
 
-	script, err := gcodeFor(cmd)
+	script, err := gcodeFor(cmd, s.roles.chamber.object)
 	if err != nil {
 		return "", nil, err
 	}

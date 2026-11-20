@@ -32,7 +32,7 @@ const (
 
 // states is this dialect's declared state set.
 func states() connectorapi.StateSet {
-	idle := []connectorapi.Capability{VerbSendStateInfo, VerbNozzleTarget, VerbBedTarget}
+	idle := []connectorapi.Capability{VerbSendStateInfo, VerbNozzleTarget, VerbBedTarget, VerbChamberTarget}
 	files := []connectorapi.Capability{
 		connectorapi.VerbSendInfo, connectorapi.VerbSendFileInfo,
 		connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
