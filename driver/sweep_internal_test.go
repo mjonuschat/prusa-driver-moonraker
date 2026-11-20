@@ -1,11 +1,47 @@
 package moonraker
 
 import (
+	"fmt"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
+	"github.com/stretchr/testify/require"
 )
+
+func TestOpeningSnapshotRetainsEveryRememberedCleanup(t *testing.T) {
+	host, err := moonrakersim.Start(t.Context(), moonrakersim.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = host.Close() })
+
+	d := NewDriver(time.Second)
+	remembered := make(map[string]struct{})
+	for i := range 100 {
+		remembered[fmt.Sprintf("/sensors/old-%d/temperature", i)] = struct{}{}
+	}
+	d.paths.remember("unit", remembered)
+	connected, err := d.Connect(t.Context(), connectorapi.Endpoint{
+		Address: host.Address(), Options: map[string]string{"unit_uid": "unit"},
+	}, d.Baseline())
+	require.NoError(t, err)
+	s := connected.(*Session)
+	t.Cleanup(func() { _ = s.Close() })
+
+	seen := make(map[string]bool)
+	deadline := time.After(2 * time.Second)
+	for len(seen) < len(remembered) {
+		select {
+		case patch := <-s.State():
+			if _, ok := remembered[patch.Path]; ok && string(patch.Value) == "null" {
+				seen[patch.Path] = true
+			}
+		case <-deadline:
+			t.Fatalf("received %d of %d cleanup patches; dropped %d", len(seen), len(remembered), s.Dropped())
+		}
+	}
+}
 
 func TestTheSweepListsTheFixedPathsAndTheRememberedOnesMinusWhatWasWritten(t *testing.T) {
 	t.Parallel()
