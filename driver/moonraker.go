@@ -299,6 +299,7 @@ func (d *Driver) Baseline() connectorapi.Set {
 	maps.Copy(set, objectsBaseline())
 	maps.Copy(set, filamentBaseline())
 	maps.Copy(set, moveEBaseline())
+	maps.Copy(set, dialogBaseline())
 
 	return set
 }

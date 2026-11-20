@@ -49,6 +49,8 @@ func states() connectorapi.StateSet {
 	// Loading and unloading filament is held back while a print is running. It
 	// is allowed paused, which is where a runout is dealt with.
 	filament := []connectorapi.Capability{VerbLoadFilament, VerbUnloadFilament}
+	// The runout dialog is answered while the print is on the bed.
+	dialog := []connectorapi.Capability{VerbDialogAction}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -61,9 +63,9 @@ func states() connectorapi.StateSet {
 		States: []connectorapi.DeviceState{
 			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
-				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files, tuning, objects)},
+				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files, tuning, objects, dialog)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning, objects, filament)},
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning, objects, filament, dialog)},
 			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
 			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion, levelling, tuning, filament)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},

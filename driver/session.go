@@ -144,6 +144,10 @@ type Session struct {
 	// has reported one.
 	machineState atomic.Pointer[string]
 
+	// dialogOpen is whether the runout dialog is raised now, for the verb that
+	// answers it.
+	dialogOpen atomic.Bool
+
 	spool    spoolman
 	requests sync.Map
 	// expired carries the id of a request whose timer fired to the reader,
@@ -272,7 +276,8 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 			"command", s.levelling)
 	}
 
-	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped), offered)
+	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped),
+		s.roles.filament != "", offered)
 
 	return offered.Intersect(s.probe), nil
 }
@@ -530,6 +535,18 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		}
 
 		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
+	case VerbDialogAction:
+		method, equivalent, dialogErr := s.dialogCommand(cmd)
+		if dialogErr != nil {
+			return "", nil, dialogErr
+		}
+
+		// The answer follows the state rule of the verb it stands for.
+		if stateErr := s.refuseInState(equivalent); stateErr != nil {
+			return "", nil, stateErr
+		}
+
+		return method, nil, nil
 	case VerbLoadFilament, VerbUnloadFilament:
 		script := s.filament.scriptFor(cmd.Verb)
 		if script == "" {
@@ -953,6 +970,12 @@ func (s *Session) ping() error {
 
 // noteState keeps the /state word a patch carries for the verb guard.
 func (s *Session) noteState(patch connectorapi.StatePatch) {
+	if patch.Path == dialogIDPath {
+		s.dialogOpen.Store(string(patch.Value) != "null")
+
+		return
+	}
+
 	var word string
 	if patch.Path != statePath || json.Unmarshal(patch.Value, &word) != nil {
 		return

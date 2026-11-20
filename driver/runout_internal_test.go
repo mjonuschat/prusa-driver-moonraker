@@ -28,10 +28,13 @@ func filamentGauges() *gauges { return &gauges{roles: roles{filament: sensor}} }
 
 var raisedDialog = map[string]string{
 	"/dialog/id": "1", "/dialog/title": `"Filament runout"`,
-	"/dialog/text": `"The filament sensor reports no filament."`,
+	"/dialog/text":    `"The filament sensor reports no filament."`,
+	"/dialog/buttons": `["Pause","Stop"]`,
 }
 
-var clearedDialog = map[string]string{"/dialog/id": "null", "/dialog/title": "null", "/dialog/text": "null"}
+var clearedDialog = map[string]string{
+	"/dialog/id": "null", "/dialog/title": "null", "/dialog/text": "null", "/dialog/buttons": "null",
+}
 
 func TestAnEmptySensorWhileIdleRaisesNothing(t *testing.T) {
 	t.Parallel()
@@ -114,4 +117,27 @@ func TestADisabledSensorRaisesNothingAndReenablingRaisesIt(t *testing.T) {
 	expect(t, read("printing", `{"filament_detected": false, "enabled": false}`), map[string]string{})
 	expect(t, read("printing", `{"enabled": true}`), raisedDialog)
 	expect(t, read("printing", `{"enabled": false}`), clearedDialog)
+}
+
+func TestPauseIsOfferedForARunningPrintAndResumeForAPausedOne(t *testing.T) {
+	t.Parallel()
+
+	g := filamentGauges()
+	expect(t, runoutRun(t, g, "printing", "false"), raisedDialog)
+
+	// The print pauses with the dialog up: only the buttons change.
+	expect(t, runoutRun(t, g, "paused", ""), map[string]string{"/dialog/buttons": `["Resume","Stop"]`})
+	expect(t, runoutRun(t, g, "paused", ""), map[string]string{})
+
+	// It resumes while the sensor still reports no filament.
+	expect(t, runoutRun(t, g, "printing", ""), map[string]string{"/dialog/buttons": `["Pause","Stop"]`})
+}
+
+func TestADialogRaisedOnAPausedPrintOffersResume(t *testing.T) {
+	t.Parallel()
+
+	got := runoutRun(t, filamentGauges(), "paused", "false")
+	if got["/dialog/buttons"] != `["Resume","Stop"]` {
+		t.Errorf("a paused print's dialog has the buttons %s", got["/dialog/buttons"])
+	}
 }
