@@ -301,6 +301,7 @@ func (d *Driver) Baseline() connectorapi.Set {
 	maps.Copy(set, moveEBaseline())
 	maps.Copy(set, dialogBaseline())
 	maps.Copy(set, chamberLightBaseline())
+	maps.Copy(set, chamberFanBaseline())
 
 	return set
 }

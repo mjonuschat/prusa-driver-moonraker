@@ -284,7 +284,7 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	}
 
 	s.probe = probe(listed.Objects, heaters, len(extruders), gcodes, s.roles.chamber, motionLimitsOf(dumped),
-		probeFeatures{dialogs: s.roles.filament != "", light: s.roles.light != ""}, offered)
+		probeFeatures{dialogs: s.roles.filament != "", light: s.roles.light != "", chamberFan: s.roles.chamberFan != ""}, offered)
 
 	return offered.Intersect(s.probe), nil
 }
@@ -542,6 +542,13 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		}
 
 		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
+	case VerbSetChamberFan:
+		script, fanErr := chamberFanScript(s.roles.chamberFan, cmd.Args)
+		if fanErr != nil {
+			return "", nil, fanErr
+		}
+
+		return methodGcodeScript, map[string]any{"script": script}, nil
 	case VerbSetChamberLED:
 		script, lightErr := lightScript(s.light, cmd.Args)
 		if lightErr != nil {

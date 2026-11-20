@@ -3,8 +3,8 @@ package moonraker
 import "strings"
 
 type roleOptions struct {
-	chamber, bedFans, partFan, heatbreakFan, filament, chamberLight string
-	extraSensors, extraFans                                         []string
+	chamber, bedFans, partFan, heatbreakFan, filament, chamberLight, chamberFan string
+	extraSensors, extraFans                                                     []string
 }
 
 func roleOptionsOf(options map[string]string) roleOptions {
@@ -15,6 +15,7 @@ func roleOptionsOf(options map[string]string) roleOptions {
 		heatbreakFan: options["heatbreak_fan_object"],
 		filament:     options["filament_object"],
 		chamberLight: options["chamber_light_object"],
+		chamberFan:   options["chamber_fan_object"],
 		extraSensors: splitList(options["extra_sensors"]),
 		extraFans:    splitList(options["extra_fans"]),
 	}
@@ -43,6 +44,7 @@ type roles struct {
 	bedFan, partFan, heatbreakFan string
 	filament                      string
 	light                         string
+	chamberFan                    string
 	extraSensors, extraFans       []string
 	unresolved                    []unresolved
 }
@@ -155,6 +157,12 @@ func resolveRoles(listed, heaters []string, opts roleOptions) roles {
 		r.light = defaultLight(listed)
 	}
 
+	if o, ok := override("chamber_fan_object", opts.chamberFan); ok {
+		r.chamberFan = o
+	} else {
+		r.chamberFan = defaultChamberFan(listed)
+	}
+
 	extras := func(option string, values []string) []string {
 		var out []string
 		for _, v := range values {
@@ -191,7 +199,7 @@ func (r roles) objects() []string {
 			out = append(out, o)
 		}
 	}
-	for _, o := range []string{r.chamber.object, r.bedFan, r.partFan, r.heatbreakFan, r.filament, r.light} {
+	for _, o := range []string{r.chamber.object, r.bedFan, r.partFan, r.heatbreakFan, r.filament, r.light, r.chamberFan} {
 		add(o)
 	}
 	for _, o := range r.extraSensors {

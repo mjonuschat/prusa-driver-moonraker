@@ -113,6 +113,8 @@ type probeFeatures struct {
 	dialogs bool
 	// light is whether the machine has a chamber light.
 	light bool
+	// chamberFan is whether the machine has a chamber fan.
+	chamberFan bool
 }
 
 // probe is what this machine says it can do, as a tier that narrows the two
@@ -182,6 +184,7 @@ func probe(
 	carryObjects(claimed, resolved, available)
 	carryDialog(claimed, resolved, features.dialogs)
 	carryChamberLight(claimed, resolved, features.light)
+	carryChamberFan(claimed, resolved, features.chamberFan)
 	carryFilament(claimed, resolved, filamentMacrosOf(available))
 
 	if slices.Contains(available, objectExtruder) {

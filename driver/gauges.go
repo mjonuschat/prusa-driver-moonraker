@@ -117,6 +117,7 @@ func (g *gauges) appendReadings(
 	out = g.appendExtras(out, objects)
 	out = g.appendRunout(out, objects[g.roles.filament], printState)
 	out = g.appendLight(out, objects)
+	out = g.appendChamberFan(out, objects)
 
 	out = g.appendFan(out, objects, g.roles.partFan, "print", active)
 	out = g.appendFan(out, objects, g.roles.heatbreakFan, "heatbreak", active)
@@ -155,6 +156,22 @@ func (g *gauges) appendLight(
 	}
 
 	return g.put(out, lightPath, scaled[0].Value)
+}
+
+// appendChamberFan writes the chamber fan's speed as a percentage.
+func (g *gauges) appendChamberFan(
+	out []connectorapi.StatePatch, objects map[string]map[string]json.RawMessage,
+) []connectorapi.StatePatch {
+	if g.roles.chamberFan == "" {
+		return out
+	}
+
+	fields := objects[g.roles.chamberFan]
+	if len(fields) == 0 {
+		return out
+	}
+
+	return g.number(out, fields, "speed", chamberFanPath, true)
 }
 
 func (g *gauges) appendChamber(
