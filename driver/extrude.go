@@ -83,12 +83,7 @@ func carryMoveE(into, from connectorapi.Set, limits motionLimits) {
 			span = limits.maxExtrudeDistance
 		}
 
-		narrowLimit(&declared, span)
-
-		if !declared.HasMin || declared.Min < -span {
-			declared.Min = -span
-			declared.HasMin = true
-		}
+		narrowDistance(&declared, span)
 
 		into[ArgMoveELength] = declared
 	}

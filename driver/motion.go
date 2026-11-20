@@ -294,12 +294,7 @@ func carryMotion(into, from connectorapi.Set, limits motionLimits) {
 			span = stepFallback
 		}
 
-		narrowLimit(&declared, span)
-
-		if !declared.HasMin || declared.Min < -span {
-			declared.Min = -span
-			declared.HasMin = true
-		}
+		narrowDistance(&declared, span)
 
 		into[key] = declared
 	}
@@ -313,6 +308,15 @@ func narrowLimit(value *connectorapi.Value, figure float64) {
 	if !value.HasLimit || figure < value.Limit {
 		value.Limit = figure
 		value.HasLimit = true
+	}
+}
+
+// narrowDistance bounds a relative move in both directions.
+func narrowDistance(value *connectorapi.Value, span float64) {
+	narrowLimit(value, span)
+	if !value.HasMin || value.Min < -span {
+		value.Min = -span
+		value.HasMin = true
 	}
 }
 
