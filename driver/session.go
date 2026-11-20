@@ -643,7 +643,7 @@ func (s *Session) callWithin(
 	s.pending.Store(id, replies)
 	defer s.pending.Delete(id)
 
-	if err = s.write(rpcRequest{JSONRPC: jsonrpcVersion, Method: method, Params: params, ID: id}); err != nil {
+	if err = s.writeContext(ctx, rpcRequest{JSONRPC: jsonrpcVersion, Method: method, Params: params, ID: id}); err != nil {
 		return nil, nil, err
 	}
 
@@ -719,8 +719,16 @@ func (s *Session) callSync(ctx context.Context, method string, params any, into 
 // write puts one request on the wire. The mutex is what makes a command sent
 // from one goroutine and a ping sent from another two whole frames.
 func (s *Session) write(request rpcRequest) error {
+	return s.writeContext(context.Background(), request)
+}
+
+func (s *Session) writeContext(ctx context.Context, request rpcRequest) error {
 	s.writing.Lock()
 	defer s.writing.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("moonraker: %s: %w", request.Method, err)
+	}
 
 	if err := s.conn.SetWriteDeadline(time.Now().Add(s.timeout)); err != nil {
 		return fmt.Errorf("%w: arm the write deadline: %w", ErrUnreachable, err)
