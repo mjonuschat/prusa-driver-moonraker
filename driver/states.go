@@ -44,6 +44,8 @@ func states() connectorapi.StateSet {
 	// A speed or flow override changes how the print runs, so it is accepted
 	// beside a print, and refused in ERROR.
 	tuning := []connectorapi.Capability{VerbSetSpeed, VerbSetFlow}
+	// An object is cancelled or brought back while its print is on the bed.
+	objects := []connectorapi.Capability{VerbCancelObject, VerbUncancelObject}
 	always := []connectorapi.Capability{VerbResetPrinter, VerbReset, VerbForceGCode}
 	scripted := append([]connectorapi.Capability{VerbSendGCode}, always...)
 	startable := append([]connectorapi.Capability{VerbStartPrint}, scripted...)
@@ -56,9 +58,9 @@ func states() connectorapi.StateSet {
 		States: []connectorapi.DeviceState{
 			{Name: stateIdle, DisplayName: "Idle", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
 			{Name: statePrinting, DisplayName: "Printing", Accepts: accepts(
-				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files, tuning)},
+				[]connectorapi.Capability{VerbPausePrint, VerbStopPrint}, scripted, idle, files, tuning, objects)},
 			{Name: statePaused, DisplayName: "Paused", Accepts: accepts(
-				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning)},
+				[]connectorapi.Capability{VerbResumePrint, VerbStopPrint}, scripted, idle, files, motion, tuning, objects)},
 			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
 			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, idle, files, motion, levelling, tuning)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},

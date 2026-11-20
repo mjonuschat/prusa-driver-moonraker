@@ -186,6 +186,7 @@ type reader struct {
 	heads   heads
 	machine machineState
 	gauges  gauges
+	objects objectBook
 }
 
 // patchesFrom turns one reading of the Klipper objects into patches, in a fixed
@@ -231,6 +232,8 @@ func (r *reader) patchesFrom(status map[string]json.RawMessage, eventTime float6
 		out = appendScaled(out, objects[objectDisplayStatus]["progress"], jobProgressPath)
 		out = p.appendRemaining(out, objects[objectDisplayStatus]["progress"], stats["print_duration"])
 	}
+
+	out = r.objects.appendObjects(out, objects[objectExcludeObject])
 
 	out = r.heads.appendReadings(out, objects)
 

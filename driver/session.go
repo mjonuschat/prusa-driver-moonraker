@@ -525,6 +525,13 @@ func (s *Session) callFor(cmd connectorapi.Command) (method string, params any, 
 		}
 
 		return methodGcodeScript, map[string]any{"script": s.levelling}, nil
+	case VerbCancelObject, VerbUncancelObject:
+		script, objectErr := s.objectCommand(cmd)
+		if objectErr != nil {
+			return "", nil, objectErr
+		}
+
+		return methodGcodeScript, map[string]any{"script": script}, nil
 	case VerbSendGCode:
 		line, lineErr := gcodeLine(cmd.Args[gcodeArgName])
 		if lineErr != nil {

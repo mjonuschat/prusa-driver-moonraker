@@ -86,7 +86,7 @@ type heatersList struct {
 //nolint:gochecknoglobals // a fixed list, read-only after init.
 var subscribed = []string{
 	objectPrintStats, objectDisplayStatus, objectExtruder,
-	objectHeaterBed, objectToolhead, objectGcodeMove, objectWebhooks,
+	objectHeaterBed, objectToolhead, objectGcodeMove, objectWebhooks, objectExcludeObject,
 }
 
 // rpcRequest is one call on its way to the machine.
