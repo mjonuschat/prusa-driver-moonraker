@@ -24,6 +24,12 @@ func TestTheSweepListsTheFixedPathsAndTheRememberedOnesMinusWhatWasWritten(t *te
 		}
 	}
 
+	for _, want := range spoolPaths {
+		if !slices.Contains(got, want) {
+			t.Errorf("the sweep lacks %s", want)
+		}
+	}
+
 	for _, not := range []string{"/temperature/chamber", "/fans/duct/speed"} {
 		if slices.Contains(got, not) {
 			t.Errorf("the sweep removes %s, which the session wrote", not)

@@ -28,7 +28,16 @@ const (
 	methodPostDirectory   = "server.files.post_directory"
 	methodDeleteDirectory = "server.files.delete_directory"
 	methodDeleteFile      = "server.files.delete_file"
+
+	methodServerConfig = "server.config"
+	methodSpoolID      = "server.spoolman.get_spool_id"
+	methodSpoolStatus  = "server.spoolman.status"
+	methodSpoolProxy   = "server.spoolman.proxy"
 )
+
+// notifyActiveSpoolSet is the notification Moonraker sends when the active
+// Spoolman spool changes. Its first param carries spool_id, a number or null.
+const notifyActiveSpoolSet = "notify_active_spool_set"
 
 // notifyFilelistChanged is the notification Moonraker sends when a file or
 // folder under a root changes.

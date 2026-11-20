@@ -3,6 +3,7 @@ package moonraker
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -93,4 +94,46 @@ func TestAnUnreadableAnswerIsAnError(t *testing.T) {
 	t.Parallel()
 	_, err := decodeSpool(json.RawMessage(`[1,2]`))
 	require.Error(t, err)
+}
+
+func TestAMethodNotFoundAnswerDisablesTheFeature(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, isMethodNotFound(&rpcError{Code: -32601}))
+	require.False(t, isMethodNotFound(&rpcError{Code: 400}))
+	require.False(t, isMethodNotFound(nil))
+}
+
+func TestPrintEndedIsAPrintLeavingTheBed(t *testing.T) {
+	t.Parallel()
+
+	words := []string{"IDLE", "PRINTING", "PAUSED", "FINISHED", "STOPPED", "ERROR"}
+	ends := map[[2]string]bool{}
+
+	for _, from := range []string{"PRINTING", "PAUSED"} {
+		for _, to := range []string{"FINISHED", "STOPPED", "ERROR"} {
+			ends[[2]string{from, to}] = true
+		}
+	}
+
+	for _, from := range words {
+		for _, to := range words {
+			require.Equal(t, ends[[2]string{from, to}], printEnded(from, to), "%s to %s", from, to)
+		}
+	}
+}
+
+func TestSyncRateReadsANumberOrText(t *testing.T) {
+	t.Parallel()
+
+	for raw, want := range map[string]time.Duration{"7": 7 * time.Second, `"3"`: 3 * time.Second, "1.5": 1500 * time.Millisecond} {
+		got, ok := seconds(json.RawMessage(raw))
+		require.True(t, ok, raw)
+		require.Equal(t, want, got, raw)
+	}
+
+	for _, raw := range []string{"", "null", "0", "-1", `"x"`, "[1]"} {
+		_, ok := seconds(json.RawMessage(raw))
+		require.False(t, ok, raw)
+	}
 }

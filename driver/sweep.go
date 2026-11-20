@@ -55,6 +55,10 @@ func sweepPaths(heads int, remembered []string, written map[string]struct{}) []s
 		dialogIDPath:           {}, dialogTitlePath: {}, dialogTextPath: {},
 	}
 
+	for _, path := range spoolPaths {
+		all[path] = struct{}{}
+	}
+
 	for _, role := range []string{"print", "heatbreak", "bed"} {
 		all[fanPathPrefix+role+"/speed"] = struct{}{}
 		all[fanPathPrefix+role+"/rpm"] = struct{}{}

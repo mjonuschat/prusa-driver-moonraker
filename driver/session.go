@@ -132,6 +132,12 @@ type Session struct {
 	// has reported one.
 	machineState atomic.Pointer[string]
 
+	spool spoolman
+	requests sync.Map
+	// expired carries the id of a request whose timer fired to the reader,
+	// which is the only goroutine allowed to act on it.
+	expired chan uint64
+
 	dropped atomic.Uint64
 	refused atomic.Uint64
 }
@@ -156,6 +162,7 @@ func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log 
 		patches: make(chan connectorapi.StatePatch, patchBacklog),
 		changes: make(chan connectorapi.FileChange, filesChangedDepth),
 		done:    make(chan struct{}),
+		expired: make(chan uint64, expiredBacklog),
 	}
 }
 
@@ -213,6 +220,10 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	// waits, so no status update may be in flight yet.
 	gcodes, err := s.readStorage(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = s.readSpoolConfig(ctx); err != nil {
 		return nil, err
 	}
 
@@ -614,20 +625,62 @@ func (s *Session) read() {
 		s.report(patch)
 	}
 
-	for {
-		_, data, err := s.conn.ReadMessage()
-		if err != nil {
-			s.log.Debug("the machine's connection ended", "error", err.Error())
+	defer s.stopSpool()
 
-			return
-		}
-
-		if err = s.rearm(); err != nil {
-			return
-		}
-
-		s.dispatch(data)
+	if s.spool.isEnabled() {
+		s.refreshSpool()
 	}
+
+	incoming := s.readFrames()
+
+	for {
+		select {
+		case message := <-incoming:
+			if message.err != nil {
+				s.log.Debug("the machine's connection ended", "error", message.err.Error())
+
+				return
+			}
+
+			if err := s.rearm(); err != nil {
+				return
+			}
+
+			s.dispatch(message.data)
+		case id := <-s.expired:
+			s.expire(id)
+		}
+	}
+}
+
+type inbound struct {
+	data []byte
+	err  error
+}
+
+// readFrames moves the blocking read to its own goroutine, so that read can also
+// act on an expired request. The goroutine ends with the connection, and it
+// never writes to the patch channel.
+func (s *Session) readFrames() <-chan inbound {
+	out := make(chan inbound)
+
+	go func() {
+		for {
+			_, data, err := s.conn.ReadMessage()
+
+			select {
+			case out <- inbound{data: data, err: err}:
+			case <-s.done:
+				return
+			}
+
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	return out
 }
 
 func (s *Session) rememberPaths() {
@@ -666,6 +719,8 @@ func (s *Session) dispatch(data []byte) {
 		s.update(frame.Params)
 	case notifyFilelistChanged:
 		s.filesChanged(frame.Params)
+	case notifyActiveSpoolSet:
+		s.activeSpoolSet(frame.Params)
 	}
 }
 
@@ -673,6 +728,10 @@ func (s *Session) dispatch(data []byte) {
 // waiting for is dropped: the caller gave up, and the channel it left behind is
 // gone with it.
 func (s *Session) answer(id uint64, frame rpcFrame) {
+	if s.answerRequest(id, frame) {
+		return
+	}
+
 	waiting, found := s.pending.Load(id)
 	if !found {
 		return
@@ -799,7 +858,12 @@ func (s *Session) ping() error {
 // noteState keeps the /state word a patch carries for the verb guard.
 func (s *Session) noteState(patch connectorapi.StatePatch) {
 	var word string
-	if patch.Path == statePath && json.Unmarshal(patch.Value, &word) == nil {
-		s.machineState.Store(&word)
+	if patch.Path != statePath || json.Unmarshal(patch.Value, &word) != nil {
+		return
+	}
+
+	previous := s.machineState.Swap(&word)
+	if previous != nil && printEnded(*previous, word) {
+		s.settleSpool()
 	}
 }
