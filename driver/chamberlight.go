@@ -131,20 +131,30 @@ func roundFraction(value float64) string {
 	return strconv.FormatFloat(math.Round(value*1e6)/1e6, 'f', -1, 64)
 }
 
-// lightScript is the gcode that sets the light to the percentage given.
-func lightScript(control lightControl, args map[string]string) (string, error) {
-	text, ok, err := plainValue(args, chamberLEDArgName)
+// percentageArg reads a required percentage and preserves the command's error message.
+func percentageArg(args map[string]string, key, invalidReason string) (float64, error) {
+	text, ok, err := plainValue(args, key)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
 	if !ok {
-		return "", malformed("", "the "+chamberLEDArgName+" argument is required")
+		return 0, malformed("", "the "+key+" argument is required")
 	}
 
 	percent, parseErr := strconv.ParseFloat(text, 64)
 	if parseErr != nil || math.IsNaN(percent) || percent < 0 || percent > percentMax {
-		return "", malformed(text, "the light intensity is a percentage from 0 to 100")
+		return 0, malformed(text, invalidReason)
+	}
+
+	return percent, nil
+}
+
+// lightScript is the gcode that sets the light to the percentage given.
+func lightScript(control lightControl, args map[string]string) (string, error) {
+	percent, err := percentageArg(args, chamberLEDArgName, "the light intensity is a percentage from 0 to 100")
+	if err != nil {
+		return "", err
 	}
 
 	fraction := percent / percentMax

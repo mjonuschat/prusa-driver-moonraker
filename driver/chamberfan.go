@@ -1,11 +1,6 @@
 package moonraker
 
-import (
-	"math"
-	"strconv"
-
-	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
-)
+import "github.com/prusa3d/prusa-connect/sdk/connectorapi"
 
 // The chamber fan is a fan_generic the machine already has, set by a percentage
 // from 0 to 100. Klipper has no automatic mode to hand it back to, so unlike
@@ -60,18 +55,9 @@ func chamberFanScript(object string, args map[string]string) (string, error) {
 		return "", malformed("", "the machine has no chamber fan")
 	}
 
-	text, ok, err := plainValue(args, chamberFanArgName)
+	percent, err := percentageArg(args, chamberFanArgName, "the fan speed is a percentage from 0 to 100")
 	if err != nil {
 		return "", err
-	}
-
-	if !ok {
-		return "", malformed("", "the "+chamberFanArgName+" argument is required")
-	}
-
-	percent, parseErr := strconv.ParseFloat(text, 64)
-	if parseErr != nil || math.IsNaN(percent) || percent < 0 || percent > percentMax {
-		return "", malformed(text, "the fan speed is a percentage from 0 to 100")
 	}
 
 	return "SET_FAN_SPEED FAN=" + heaterName(object) + " SPEED=" + roundFraction(percent/percentMax), nil
