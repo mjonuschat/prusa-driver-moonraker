@@ -37,7 +37,9 @@ func (s *Session) FilesChanged() <-chan connectorapi.FileChange { return s.chang
 
 // onGcodes reports whether the item is in the gcodes root, the only root this
 // driver exposes.
-func onGcodes(item *filelistItem) bool { return item != nil && item.Root == gcodesRoot }
+func onGcodes(item *filelistItem) bool {
+	return item != nil && item.Root == gcodesRoot && !hidden(item.Path)
+}
 
 func hostPath(item *filelistItem) string { return gcodesRoot + "/" + item.Path }
 

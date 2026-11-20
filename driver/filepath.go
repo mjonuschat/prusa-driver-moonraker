@@ -31,3 +31,18 @@ func gcodesPath(path string) (relative string, err error) {
 
 	return strings.Join(segments[1:], "/"), nil
 }
+
+// hidden reports whether any segment of a path inside the gcodes root starts
+// with a dot, which is the Unix convention for a file or folder nobody lists.
+// Moonraker keeps its thumbnails in .thumbs, and Mainsail and Fluidd hide it
+// too. The path is still reachable by name; it is only left out of listings and
+// file events.
+func hidden(relative string) bool {
+	for _, segment := range strings.Split(relative, "/") {
+		if strings.HasPrefix(segment, ".") && segment != "." && segment != ".." {
+			return true
+		}
+	}
+
+	return false
+}

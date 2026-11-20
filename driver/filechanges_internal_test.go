@@ -179,3 +179,24 @@ func TestOverflowKeepsARescanOfEveryListedFolder(t *testing.T) {
 		}
 	}
 }
+
+func TestAChangeInsideADotFolderOrOnADotFileEmitsNothing(t *testing.T) {
+	t.Parallel()
+
+	for _, item := range []string{".thumbs", ".thumbs/a-300x300.png", ".hidden.gcode", "a/.cache/x.gcode"} {
+		for _, action := range []string{"create_file", "modify_file", "create_dir", "delete_file", "delete_dir"} {
+			require.Empty(t, changesOf(filelistEvent{Action: action, Item: gcodesItem(item)}), "%s %s", action, item)
+		}
+	}
+}
+
+func TestAMoveIntoOrOutOfADotFolderEmitsOnlyTheVisibleEnd(t *testing.T) {
+	t.Parallel()
+
+	moved := changesOf(filelistEvent{
+		Action: "move_file", SourceItem: gcodesItem(".hidden/a.gcode"), Item: gcodesItem("a.gcode"),
+	})
+	require.Len(t, moved, 1)
+	require.False(t, moved[0].Removed)
+	require.Equal(t, "gcodes/a.gcode", moved[0].File.Path)
+}

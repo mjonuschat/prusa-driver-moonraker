@@ -70,6 +70,10 @@ func (s *Session) List(ctx context.Context, asked string) (connectorapi.Listing,
 	}
 
 	for _, dir := range reply.Dirs {
+		if hidden(dir.Dirname) {
+			continue
+		}
+
 		listing.Entries = append(listing.Entries, connectorapi.File{
 			Path: folder + "/" + dir.Dirname, Name: dir.Dirname, DisplayName: dir.Dirname,
 			Folder: true, Size: dir.Size, Modified: int64(dir.Modified), ReadOnly: readOnly,
@@ -77,6 +81,10 @@ func (s *Session) List(ctx context.Context, asked string) (connectorapi.Listing,
 	}
 
 	for _, file := range reply.Files {
+		if hidden(file.Filename) {
+			continue
+		}
+
 		listing.Entries = append(listing.Entries, connectorapi.File{
 			Path: folder + "/" + file.Filename, Name: file.Filename, DisplayName: file.Filename,
 			Size: file.Size, Modified: int64(file.Modified), ReadOnly: readOnly,

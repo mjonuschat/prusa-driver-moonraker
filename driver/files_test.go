@@ -159,3 +159,19 @@ func TestAFolderListingRefreshesFreeSpace(t *testing.T) {
 	require.Len(t, storages, 1)
 	require.Equal(t, int64(5), storages[0].FreeSpace)
 }
+
+func TestAListNamesNeitherADotFileNorADotFolder(t *testing.T) {
+	t.Parallel()
+
+	session := connect(t, startMachine(t, moonrakersim.Options{}))
+
+	got, err := filesOf(t, session).List(t.Context(), "gcodes")
+	require.NoError(t, err)
+
+	for _, entry := range got.Entries {
+		require.NotContains(t, entry.Name, ".thumbs")
+		require.NotEqual(t, ".hidden.gcode", entry.Name)
+	}
+
+	require.NotEmpty(t, got.Entries)
+}

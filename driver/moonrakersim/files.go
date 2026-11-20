@@ -99,6 +99,8 @@ func (h *Host) initFiles(opts Options) {
 		"gcodes/models/part.gcode":  {size: 2000, modified: 1700000100},
 		"gcodes/empty":              {dir: true, modified: 1700000060},
 		"gcodes/odd name #1?.gcode": {size: 300, modified: 1700000200},
+		"gcodes/.thumbs":            {dir: true, modified: 1700000300},
+		"gcodes/.hidden.gcode":      {size: 50, modified: 1700000300},
 	}
 }
 
