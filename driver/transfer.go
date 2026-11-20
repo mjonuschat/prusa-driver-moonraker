@@ -71,13 +71,15 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 	content := &heldReader{}
 	reports := &reporter{total: up.Content.Size(), call: up.Progress}
 	written := make(chan struct{})
+	var writeErr error
 
 	stopWatch := context.AfterFunc(runCtx, content.close)
 
 	go func() {
 		defer close(written)
 
-		pipeWriter.CloseWithError(writeForm(runCtx, form, up.Content, content, reports, folder, path.Base(relative)))
+		writeErr = writeForm(runCtx, form, up.Content, content, reports, folder, path.Base(relative))
+		pipeWriter.CloseWithError(writeErr)
 	}()
 
 	defer func() {
@@ -125,9 +127,16 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 
 	// The writer has finished once the machine has read the whole body, but
 	// wait for it so the last report carries the final count.
+	cancel()
 	_ = pipeReader.Close()
 
 	<-written
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if writeErr != nil {
+		return transferFailed(up.Path, redactCause(writeErr, target, target))
+	}
 
 	reports.report(reports.sent())
 
