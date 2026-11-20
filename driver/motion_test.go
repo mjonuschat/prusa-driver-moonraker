@@ -366,3 +366,30 @@ func TestAJogNeverUsesTheStateAPauseSaves(t *testing.T) {
 		require.NotContains(t, strings.ToUpper(script), "PAUSE_STATE")
 	}
 }
+
+func TestResumeWaitsForAJogAndItsRecovery(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "paused"}})
+	collect(t, session, map[string]string{"/state": `"PAUSED"`})
+	machine.RefuseScript("G1", "Must home axis first")
+	machine.SlowScripts(100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		_, err := session.Do(t.Context(), motionCommands()[0])
+		assert.NoError(t, err)
+	})
+
+	time.Sleep(30 * time.Millisecond)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{Verb: moonraker.VerbResumePrint})
+	require.NoError(t, err)
+	wg.Wait()
+
+	calls := machine.Calls()
+	require.Equal(t, "printer.print.resume", calls[len(calls)-1])
+	require.Len(t, machine.Scripts(), 2)
+}

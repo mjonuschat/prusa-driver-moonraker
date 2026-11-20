@@ -66,8 +66,9 @@ func (l liveness) orShipping() liveness {
 // After begin, one reader goroutine owns every read, and it is the only writer
 // to the patch channel and therefore the only thing that closes it.
 type Session struct {
-	// motion serialises the motion verbs, so a jog and its recovery restore
-	// run as one unit.
+	// motion serialises the motion verbs and the verbs that change or depend
+	// on gcode state, so a jog and its recovery restore run as one unit and a
+	// resume cannot run between them.
 	motion sync.Mutex
 
 	conn    *websocket.Conn
@@ -421,7 +422,7 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 			With(fault.StringParam("verb", cmd.Verb.String()))
 	}
 
-	if isMotion(cmd.Verb) {
+	if takesMotionLock(cmd.Verb) {
 		s.motion.Lock()
 		defer s.motion.Unlock()
 	}

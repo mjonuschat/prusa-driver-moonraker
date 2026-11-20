@@ -331,3 +331,15 @@ func isJog(verb connectorapi.Capability) bool {
 func isMotion(verb connectorapi.Capability) bool {
 	return isJog(verb) || verb == VerbHome || verb == VerbDisableSteppers
 }
+
+// takesMotionLock is true for the verbs that must not interleave with a jog:
+// the motion verbs, and the ones that start, resume or end a print or send
+// gcode. force_gcode is left out so an emergency stop never waits.
+func takesMotionLock(verb connectorapi.Capability) bool {
+	switch verb {
+	case VerbPausePrint, VerbResumePrint, VerbStopPrint, VerbStartPrint, VerbSendGCode:
+		return true
+	default:
+		return isMotion(verb)
+	}
+}
