@@ -49,6 +49,10 @@ func (s *Session) List(ctx context.Context, asked string) (connectorapi.Listing,
 		folder += "/" + relative
 	}
 
+	s.files.mu.Lock()
+	generation := s.files.generation
+	s.files.mu.Unlock()
+
 	reply, refusal, err := s.directory(ctx, folder)
 	if err != nil {
 		return connectorapi.Listing{}, err
@@ -92,7 +96,7 @@ func (s *Session) List(ctx context.Context, asked string) (connectorapi.Listing,
 	}
 
 	if reply.DiskUsage != nil {
-		s.setFreeSpace(*reply.DiskUsage)
+		s.setFreeSpace(*reply.DiskUsage, generation)
 	}
 
 	return listing, nil

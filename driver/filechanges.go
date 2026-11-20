@@ -140,6 +140,7 @@ func (s *Session) filesChanged(params json.RawMessage) {
 
 	s.files.mu.Lock()
 	s.files.stale = true
+	s.files.generation++
 	s.files.mu.Unlock()
 
 	for _, change := range changes {
