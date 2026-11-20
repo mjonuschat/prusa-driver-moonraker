@@ -96,6 +96,23 @@ export const endpointBody = (
   };
 };
 
+/** Create an endpoint, or update the one this wizard already created. */
+export const endpointWrite = (
+  form: MachineForm,
+  created?: { name: string; version: string },
+) => {
+  const name = created?.name ?? form.name;
+
+  return {
+    path: { name },
+    header:
+      created === undefined
+        ? { 'If-None-Match': '*' }
+        : { 'If-Match': `"${created.version}"` },
+    body: endpointBody({ ...form, name }),
+  };
+};
+
 /** The endpoint options that name a Klipper object for one role, in the order the edit view lists them. */
 export const ROLE_KEYS = [
   'chamber_object',

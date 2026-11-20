@@ -31,7 +31,7 @@
   import {
     DEFAULT_CONNECTOR,
     cleanAddress,
-    endpointBody,
+    endpointWrite,
     looksLikeAddress,
     nameFromAddress,
     validName,
@@ -69,10 +69,11 @@
   let failure = $state<Error | undefined>();
   let slow = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let created = $state<{ name: string; version: string } | undefined>();
 
   const position = $derived(ORDER.indexOf(step));
   const name = $derived(
-    touchedName ? form.name : nameFromAddress(form.address),
+    created?.name ?? (touchedName ? form.name : nameFromAddress(form.address)),
   );
   const identity = $derived(
     form.unitUid.trim() === '' ? name : form.unitUid.trim(),
@@ -156,12 +157,8 @@
     saving = true;
     failure = undefined;
     try {
-      await host.client.putConnectorEndpoint(
-        {
-          path: { name },
-          header: { 'If-None-Match': '*' },
-          body: endpointBody({ ...form, name }),
-        },
+      created = await host.client.putConnectorEndpoint(
+        endpointWrite({ ...form, name }, created),
         host.signal,
       );
       slow = false;
@@ -185,6 +182,7 @@
       model: '',
     };
     touchedName = false;
+    created = undefined;
     showErrors = false;
     slow = false;
     step = 'address';
@@ -271,6 +269,7 @@
               control={Input}
               controlProps={{
                 value: name,
+                disabled: created !== undefined,
                 autocomplete: 'off',
                 oninput: (event: Event) => {
                   touchedName = true;
