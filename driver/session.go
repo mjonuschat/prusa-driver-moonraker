@@ -371,11 +371,11 @@ func (s *Session) begin(identity connectorapi.Identity, caps connectorapi.Set) {
 	if s.folders != nil {
 		recorded := s.folders.recorded(s.unit)
 		if len(recorded) > 0 {
-			s.changes <- rescanOf(gcodesRoot)
+			s.queueRescan(gcodesRoot)
 
 			for _, folder := range recorded {
 				if folder != gcodesRoot {
-					s.changes <- rescanOf(folder)
+					s.queueRescan(folder)
 				}
 			}
 		}
