@@ -312,6 +312,14 @@ func gcodeFor(cmd connectorapi.Command, chamber string) (string, error) {
 		return heaterScript(heaterBed, cmd.Verb, cmd.Args[bedArgument])
 	case VerbChamberTarget:
 		return heaterScript(heaterName(chamber), cmd.Verb, cmd.Args[chamberArgument])
+	case VerbMove:
+		return moveScript(cmd.Args)
+	case VerbMoveZ:
+		return moveZScript(cmd.Args)
+	case VerbHome:
+		return homeScript(cmd.Args)
+	case VerbDisableSteppers:
+		return disableSteppersScript, nil
 	default:
 		return "", fmt.Errorf("moonraker: %s reaches no call and no gcode line", cmd.Verb)
 	}

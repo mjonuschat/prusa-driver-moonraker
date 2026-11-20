@@ -286,3 +286,26 @@ func TestRequestsReturnsTheParamsOfEachCall(t *testing.T) {
 		t.Fatalf("refusal = %+v", bad.Error)
 	}
 }
+
+func TestRefuseScriptAnswersAnErrorAndStillRecordsTheScript(t *testing.T) {
+	r := start(t, moonrakersim.Options{})
+	r.host.RefuseScript("G1", "Must home axis first")
+
+	got := r.call("printer.gcode.script", map[string]any{"script": "G1 X1"})
+	if got.Error == nil || got.Error.Message != "Must home axis first" {
+		t.Fatalf("error = %+v", got.Error)
+	}
+
+	if scripts := r.host.Scripts(); len(scripts) != 1 || scripts[0] != "G1 X1" {
+		t.Fatalf("scripts = %v", scripts)
+	}
+
+	r.ok("printer.gcode.script", map[string]any{"script": "G28"}, nil)
+}
+
+func TestAllowScriptsClearsIt(t *testing.T) {
+	r := start(t, moonrakersim.Options{})
+	r.host.RefuseScript("G1", "no")
+	r.host.AllowScripts()
+	r.ok("printer.gcode.script", map[string]any{"script": "G1 X1"}, nil)
+}

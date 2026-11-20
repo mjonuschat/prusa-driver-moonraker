@@ -323,3 +323,11 @@ func narrowLimit(value *connectorapi.Value, figure float64) {
 		value.HasLimit = true
 	}
 }
+
+func isJog(verb connectorapi.Capability) bool {
+	return verb == VerbMove || verb == VerbMoveZ
+}
+
+func isMotion(verb connectorapi.Capability) bool {
+	return isJog(verb) || verb == VerbHome || verb == VerbDisableSteppers
+}

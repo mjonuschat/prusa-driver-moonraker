@@ -66,6 +66,10 @@ func (l liveness) orShipping() liveness {
 // After begin, one reader goroutine owns every read, and it is the only writer
 // to the patch channel and therefore the only thing that closes it.
 type Session struct {
+	// motion serialises the motion verbs, so a jog and its recovery restore
+	// run as one unit.
+	motion sync.Mutex
+
 	conn    *websocket.Conn
 	timeout time.Duration
 	live    liveness
@@ -417,6 +421,11 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 			With(fault.StringParam("verb", cmd.Verb.String()))
 	}
 
+	if isMotion(cmd.Verb) {
+		s.motion.Lock()
+		defer s.motion.Unlock()
+	}
+
 	if err := s.refuseInState(cmd.Verb); err != nil {
 		return connectorapi.Result{}, err
 	}
@@ -437,6 +446,12 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 	}
 
 	if refusal != nil {
+		if isJog(cmd.Verb) {
+			// Klipper skips the restore after an error, which would leave the
+			// machine in relative mode. This is best effort, so the outcome is ignored.
+			_, _, _ = s.call(ctx, methodGcodeScript, map[string]any{"script": restoreJogScript})
+		}
+
 		return connectorapi.Result{OK: false, MachineReason: refusal.Message}, nil
 	}
 
@@ -449,6 +464,12 @@ func (s *Session) Do(ctx context.Context, cmd connectorapi.Command) (connectorap
 func (s *Session) refuseInState(verb connectorapi.Capability) error {
 	now := s.machineState.Load()
 	if now == nil {
+		if isMotion(verb) {
+			return fault.PrinterVerbNotAllowedInState.
+				New("the printer state is not known yet, and " + verb.String() + " is not sent until it is").
+				With(fault.StringParam("verb", verb.String()))
+		}
+
 		return nil
 	}
 

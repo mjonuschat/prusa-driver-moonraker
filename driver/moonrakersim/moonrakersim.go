@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -183,14 +184,16 @@ type Host struct {
 	version  string
 	objects  []string
 
-	mu        sync.Mutex
-	status    map[string]map[string]any
-	refused   map[string]string
-	conns     []*link
-	calls     []string
-	scripts   []string
-	filenames []string
-	eventTime float64
+	mu             sync.Mutex
+	status         map[string]map[string]any
+	refused        map[string]string
+	scriptRefusals map[string]string
+	scriptDelay    time.Duration
+	conns          []*link
+	calls          []string
+	scripts        []string
+	filenames      []string
+	eventTime      float64
 
 	requests   map[string][]json.RawMessage
 	tree       map[string]entry
@@ -462,7 +465,15 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 			"eventtime": h.clock(), "status": h.reading(params),
 		})
 	case methodGcodeScript:
-		h.recordScript(params)
+		script := h.recordScript(params)
+
+		if delay := h.slowScript(); delay > 0 {
+			time.Sleep(delay)
+		}
+
+		if message, refused := h.scriptRefusal(script); refused {
+			return errorFrame(id, requestRefused, message)
+		}
 
 		return resultFrame(id, "ok")
 	case methodEmergencyStop:
@@ -538,19 +549,70 @@ func (h *Host) restarts(method string) bool {
 
 // recordScript keeps the gcode line one call carried, so a case can read the
 // line rather than only the fact that a call was made.
-func (h *Host) recordScript(params json.RawMessage) {
+func (h *Host) recordScript(params json.RawMessage) string {
 	var sent struct {
 		Script string `json:"script"`
 	}
 
 	if len(params) == 0 || json.Unmarshal(params, &sent) != nil {
-		return
+		return ""
 	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.scripts = append(h.scripts, sent.Script)
+
+	return sent.Script
+}
+
+// RefuseScript makes every later printer.gcode.script whose text contains the
+// given string answer an error carrying message. The script is still recorded.
+func (h *Host) RefuseScript(contains, message string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.scriptRefusals == nil {
+		h.scriptRefusals = map[string]string{}
+	}
+
+	h.scriptRefusals[contains] = message
+}
+
+func (h *Host) AllowScripts() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.scriptRefusals = nil
+}
+
+// SlowScripts delays every script answer by d, so a case can hold one call
+// open while another is sent.
+func (h *Host) SlowScripts(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.scriptDelay = d
+}
+
+func (h *Host) slowScript() time.Duration {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.scriptDelay
+}
+
+func (h *Host) scriptRefusal(script string) (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for contains, message := range h.scriptRefusals {
+		if strings.Contains(script, contains) {
+			return message, true
+		}
+	}
+
+	return "", false
 }
 
 func (h *Host) refusal(method string) (string, bool) {

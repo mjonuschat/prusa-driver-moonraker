@@ -1,9 +1,14 @@
 package moonraker_test
 
 import (
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
+	"github.com/prusa3d/prusa-connect/sdk/fault"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	moonraker "github.com/mjonuschat/prusa-driver-moonraker/driver"
@@ -169,4 +174,195 @@ func TestANegativeStepIsValidOnAnAxisThatStartsAtZero(t *testing.T) {
 		Verb: moonraker.VerbMove, Args: map[string]string{"x": "-301", "feedrate": "3000"},
 	})
 	require.Error(t, err)
+}
+
+const restoreLine = "RESTORE_GCODE_STATE NAME=CONNECT_JOG"
+
+var jogScript = strings.Join([]string{
+	"SAVE_GCODE_STATE NAME=CONNECT_JOG", "G91", "G1 X1.5 F3000", restoreLine,
+}, "\n")
+
+func readyMachine(t *testing.T) (*moonrakersim.Host, connectorapi.Session) {
+	t.Helper()
+
+	machine := startMachine(t, moonrakersim.Options{})
+	session := connect(t, machine)
+	collect(t, session, map[string]string{"/state": `"IDLE"`})
+
+	return machine, session
+}
+
+func motionCommands() []connectorapi.Command {
+	return []connectorapi.Command{
+		{Verb: moonraker.VerbMove, Args: map[string]string{"x": "1.5", "feedrate": "3000"}},
+		{Verb: moonraker.VerbMoveZ, Args: map[string]string{"distance": "-0.5", "feedrate": "600"}},
+		{Verb: moonraker.VerbHome, Args: map[string]string{}},
+		{Verb: moonraker.VerbDisableSteppers, Args: map[string]string{}},
+	}
+}
+
+func TestAJogIsSentAsOneScriptAndSucceeds(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+
+	result, err := session.Do(t.Context(), motionCommands()[0])
+	require.NoError(t, err)
+	require.True(t, result.OK)
+	require.Equal(t, []string{jogScript}, machine.Scripts())
+}
+
+func TestMoveZHomeAndStepperVerbsSendTheirScripts(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+
+	cmds := []connectorapi.Command{
+		motionCommands()[1],
+		motionCommands()[2],
+		{Verb: moonraker.VerbHome, Args: map[string]string{"axis": "xy"}},
+		motionCommands()[3],
+	}
+	for _, cmd := range cmds {
+		result, err := session.Do(t.Context(), cmd)
+		require.NoError(t, err)
+		require.True(t, result.OK)
+	}
+
+	require.Equal(t, []string{
+		strings.Join([]string{"SAVE_GCODE_STATE NAME=CONNECT_JOG", "G91", "G1 Z-0.5 F600", restoreLine}, "\n"),
+		"G28", "G28 X Y", "M84",
+	}, machine.Scripts())
+}
+
+func TestARefusedJogSendsTheRestoreAndReturnsTheRefusal(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+	machine.RefuseScript("G1", "Must home axis first")
+
+	result, err := session.Do(t.Context(), motionCommands()[0])
+	require.NoError(t, err)
+	require.False(t, result.OK)
+	require.Equal(t, "Must home axis first", result.MachineReason)
+
+	scripts := machine.Scripts()
+	require.Len(t, scripts, 2)
+	require.Equal(t, restoreLine, scripts[1])
+}
+
+func TestARefusedHomeSendsNoRestore(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+	machine.RefuseScript("G28", "Homing failed")
+
+	result, err := session.Do(t.Context(), motionCommands()[2])
+	require.NoError(t, err)
+	require.False(t, result.OK)
+	require.Len(t, machine.Scripts(), 1)
+}
+
+func requireAllRefused(t *testing.T, session connectorapi.Session, machine *moonrakersim.Host) {
+	t.Helper()
+
+	for _, cmd := range motionCommands() {
+		_, err := session.Do(t.Context(), cmd)
+		require.True(t, fault.HasCode(err, fault.PrinterVerbNotAllowedInState.Code()), "%s: %v", cmd.Verb, err)
+	}
+
+	require.Empty(t, machine.Scripts())
+}
+
+func TestMotionIsRefusedWhilePrintingAndInError(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+
+	machine.Push(map[string]map[string]any{"print_stats": {"state": "printing"}})
+	collect(t, session, map[string]string{"/state": `"PRINTING"`})
+	requireAllRefused(t, session, machine)
+
+	machine.Push(map[string]map[string]any{"webhooks": {"state": "shutdown", "state_message": "x"}})
+	collect(t, session, map[string]string{"/state": `"ERROR"`})
+	requireAllRefused(t, session, machine)
+}
+
+func TestMotionIsAllowedWhilePausedAndWhenStopped(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+
+	for state, word := range map[string]string{"paused": "PAUSED", "cancelled": "STOPPED"} {
+		machine.Push(map[string]map[string]any{"print_stats": {"state": state}})
+		collect(t, session, map[string]string{"/state": `"` + word + `"`})
+
+		before := len(machine.Scripts())
+
+		for _, cmd := range motionCommands() {
+			result, err := session.Do(t.Context(), cmd)
+			require.NoError(t, err)
+			require.True(t, result.OK)
+		}
+
+		require.Greater(t, len(machine.Scripts()), before)
+	}
+}
+
+func TestTwoJogsSentTogetherDoNotShareARecovery(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+	machine.RefuseScript("G1", "Must home axis first")
+	machine.SlowScripts(50 * time.Millisecond)
+
+	var wg sync.WaitGroup
+
+	for range 2 {
+		wg.Go(func() {
+			_, err := session.Do(t.Context(), motionCommands()[0])
+			assert.NoError(t, err)
+		})
+	}
+
+	wg.Wait()
+
+	scripts := machine.Scripts()
+	require.Len(t, scripts, 4)
+
+	for i := 0; i < len(scripts); i += 2 {
+		require.Contains(t, scripts[i], "G1")
+		require.Equal(t, restoreLine, scripts[i+1])
+	}
+}
+
+func TestMotionIsRefusedBeforeAnyStateIsKnown(t *testing.T) {
+	t.Parallel()
+
+	objects := without(without(moonrakersim.DefaultObjects(), "print_stats"), "webhooks")
+	machine := startMachine(t, moonrakersim.Options{Objects: objects})
+	session := connect(t, machine)
+
+	requireAllRefused(t, session, machine)
+
+	_, err := session.Do(t.Context(), connectorapi.Command{
+		Verb: moonraker.VerbSendGCode, Args: map[string]string{"gcode": "G28"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"G28"}, machine.Scripts())
+}
+
+func TestAJogNeverUsesTheStateAPauseSaves(t *testing.T) {
+	t.Parallel()
+
+	machine, session := readyMachine(t)
+
+	for _, cmd := range motionCommands() {
+		_, err := session.Do(t.Context(), cmd)
+		require.NoError(t, err)
+	}
+
+	for _, script := range machine.Scripts() {
+		require.NotContains(t, strings.ToUpper(script), "PAUSE_STATE")
+	}
 }
