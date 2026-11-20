@@ -257,19 +257,7 @@ func motionLimitsOf(dumped configDump) motionLimits {
 	readExtruderLimits(dumped, &out)
 
 	for i, axis := range axisSections {
-		var bounds stepperBounds
-		if json.Unmarshal(dumped.Settings[axis.section], &bounds) != nil || bounds.PositionMax == nil {
-			continue
-		}
-
-		low := 0.0
-		if bounds.PositionMin != nil {
-			low = *bounds.PositionMin
-		}
-
-		if span := *bounds.PositionMax - low; finitePositive(span) {
-			out.travel[i] = span
-		}
+		out.travel[i] = stepperTravel(dumped.Settings[axis.section])
 	}
 
 	return out

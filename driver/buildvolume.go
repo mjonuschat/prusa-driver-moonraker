@@ -2,7 +2,6 @@ package moonraker
 
 import (
 	"encoding/json"
-	"math"
 	"strconv"
 
 	"github.com/prusa3d/prusa-connect/sdk/connectorapi"
@@ -33,23 +32,33 @@ type stepperBounds struct {
 	PositionMax *float64 `json:"position_max"`
 }
 
+// stepperTravel returns zero when the section does not define a usable span.
+func stepperTravel(raw json.RawMessage) float64 {
+	var bounds stepperBounds
+	if json.Unmarshal(raw, &bounds) != nil || bounds.PositionMax == nil {
+		return 0
+	}
+
+	low := 0.0
+	if bounds.PositionMin != nil {
+		low = *bounds.PositionMin
+	}
+
+	travel := *bounds.PositionMax - low
+	if !finitePositive(travel) {
+		return 0
+	}
+
+	return travel
+}
+
 // buildVolumePatches reads the volume out of the configuration dump.
 func buildVolumePatches(dumped configDump) []connectorapi.StatePatch {
 	var out []connectorapi.StatePatch
 
 	for _, axis := range axisSections {
-		var bounds stepperBounds
-		if json.Unmarshal(dumped.Settings[axis.section], &bounds) != nil || bounds.PositionMax == nil {
-			continue
-		}
-
-		low := 0.0
-		if bounds.PositionMin != nil {
-			low = *bounds.PositionMin
-		}
-
-		travel := *bounds.PositionMax - low
-		if travel <= 0 || math.IsNaN(travel) || math.IsInf(travel, 0) {
+		travel := stepperTravel(dumped.Settings[axis.section])
+		if travel == 0 {
 			continue
 		}
 

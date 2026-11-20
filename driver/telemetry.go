@@ -417,13 +417,13 @@ func (m *machineState) appendState(
 ) []connectorapi.StatePatch {
 	heard := false
 
-	if value := stringOf(printState); value != "" {
+	if value := klipperText(printState); value != "" {
 		previous := m.print
 		m.print, heard = value, true
 		m.noteEnd(previous)
 	}
 
-	if value := stringOf(hookState); value != "" {
+	if value := klipperText(hookState); value != "" {
 		m.hook, heard = value, true
 	}
 
@@ -483,15 +483,6 @@ func (m *machineState) noteEnd(previous string) {
 	default:
 		m.held = ""
 	}
-}
-
-func stringOf(raw json.RawMessage) string {
-	var value string
-	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
-		return ""
-	}
-
-	return value
 }
 
 // appendVerbatim passes a value on exactly as the machine encoded it. A driver
