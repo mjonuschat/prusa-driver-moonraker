@@ -148,7 +148,7 @@ func TestMotionLimitsReadTheConfiguration(t *testing.T) {
 			"stepper_x": `{"position_min": -5, "position_max": 300}`,
 			"stepper_y": `{"position_max": 250}`,
 			"stepper_z": `{"position_min": 0, "position_max": 200}`,
-		}, motionLimits{300, 15, [3]float64{305, 250, 200}}},
+		}, motionLimits{maxVelocity: 300, maxZVelocity: 15, travel: [3]float64{305, 250, 200}}},
 		{"nothing", map[string]string{}, motionLimits{}},
 		{"no max_z_velocity", map[string]string{"printer": `{"max_velocity": 100}`}, motionLimits{maxVelocity: 100}},
 		{"inverted stepper", map[string]string{"stepper_x": `{"position_min": 10, "position_max": 5}`}, motionLimits{}},

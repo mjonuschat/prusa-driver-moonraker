@@ -173,6 +173,10 @@ func probe(
 	carryObjects(claimed, resolved, available)
 	carryFilament(claimed, resolved, filamentMacrosOf(available))
 
+	if slices.Contains(available, objectExtruder) {
+		carryMoveE(claimed, resolved, limits)
+	}
+
 	if command, _ := levelCommandOf(available); command != "" {
 		carry(claimed, resolved, VerbMeshBedLeveling)
 	}
@@ -324,6 +328,8 @@ func gcodeFor(cmd connectorapi.Command, chamber string) (string, error) {
 		return moveScript(cmd.Args)
 	case VerbMoveZ:
 		return moveZScript(cmd.Args)
+	case VerbMoveE:
+		return moveEScript(cmd.Args)
 	case VerbHome:
 		return homeScript(cmd.Args)
 	case VerbDisableSteppers:

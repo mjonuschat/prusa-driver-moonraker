@@ -38,7 +38,7 @@ func states() connectorapi.StateSet {
 		connectorapi.VerbCreateFolder, connectorapi.VerbDeleteFile, connectorapi.VerbDeleteFolder,
 		connectorapi.VerbFileUpload,
 	}
-	motion := []connectorapi.Capability{VerbMove, VerbMoveZ, VerbHome, VerbDisableSteppers}
+	motion := []connectorapi.Capability{VerbMove, VerbMoveZ, VerbMoveE, VerbHome, VerbDisableSteppers}
 	// Levelling is held back while a print is on the bed, paused or not.
 	levelling := []connectorapi.Capability{VerbMeshBedLeveling}
 	// A speed or flow override changes how the print runs, so it is accepted

@@ -228,6 +228,8 @@ func motionBaseline() connectorapi.Set {
 // motionLimits are the machine's own figures, with zero meaning unknown.
 type motionLimits struct {
 	maxVelocity, maxZVelocity float64
+	maxExtrudeVelocity        float64
+	maxExtrudeDistance        float64
 	travel                    [3]float64
 }
 
@@ -251,6 +253,8 @@ func motionLimitsOf(dumped configDump) motionLimits {
 			out.maxZVelocity = *printer.MaxZVelocity
 		}
 	}
+
+	readExtruderLimits(dumped, &out)
 
 	for i, axis := range axisSections {
 		var bounds stepperBounds
@@ -325,7 +329,7 @@ func narrowLimit(value *connectorapi.Value, figure float64) {
 }
 
 func isJog(verb connectorapi.Capability) bool {
-	return verb == VerbMove || verb == VerbMoveZ
+	return verb == VerbMove || verb == VerbMoveZ || verb == VerbMoveE
 }
 
 func isMotion(verb connectorapi.Capability) bool {
