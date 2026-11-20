@@ -155,7 +155,9 @@ type Session struct {
 	requests sync.Map
 	// expired carries the id of a request whose timer fired to the reader,
 	// which is the only goroutine allowed to act on it.
-	expired chan uint64
+	expired       chan uint64
+	estimateRetry chan uint64
+	estimateTimer *time.Timer
 
 	dropped atomic.Uint64
 	refused atomic.Uint64
@@ -174,14 +176,15 @@ var _ connectorapi.ReportsProbe = (*Session)(nil)
 // newSession wraps a connection that is open and has said nothing yet.
 func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log *slog.Logger) *Session {
 	return &Session{
-		conn:    conn,
-		timeout: timeout,
-		live:    live,
-		log:     log,
-		patches: make(chan connectorapi.StatePatch, patchBacklog),
-		changes: make(chan connectorapi.FileChange, filesChangedDepth),
-		done:    make(chan struct{}),
-		expired: make(chan uint64, expiredBacklog),
+		conn:          conn,
+		timeout:       timeout,
+		live:          live,
+		log:           log,
+		patches:       make(chan connectorapi.StatePatch, patchBacklog),
+		changes:       make(chan connectorapi.FileChange, filesChangedDepth),
+		done:          make(chan struct{}),
+		expired:       make(chan uint64, expiredBacklog),
+		estimateRetry: make(chan uint64, 1),
 	}
 }
 
@@ -749,6 +752,11 @@ func (s *Session) read() {
 	}
 
 	defer s.stopSpool()
+	defer func() {
+		if s.estimateTimer != nil {
+			s.estimateTimer.Stop()
+		}
+	}()
 
 	if s.spool.isEnabled() {
 		s.refreshSpool()
@@ -772,6 +780,11 @@ func (s *Session) read() {
 			s.dispatch(message.data)
 		case id := <-s.expired:
 			s.expire(id)
+		case generation := <-s.estimateRetry:
+			if generation == s.reader.prints.estimateGeneration {
+				s.reader.prints.requested = ""
+				s.askEstimate()
+			}
 		}
 	}
 }
@@ -922,6 +935,7 @@ func (s *Session) askEstimate() {
 
 		var reply metadataReply
 		if frame.Error != nil || json.Unmarshal(frame.Result, &reply) != nil {
+			s.retryEstimate(generation)
 			return
 		}
 
@@ -929,7 +943,21 @@ func (s *Session) askEstimate() {
 	})
 	if err != nil {
 		s.log.Debug("the estimate of the file printing could not be asked for", "error", err.Error())
+		s.retryEstimate(generation)
 	}
+}
+
+// retryEstimate schedules a retry on the reader, without blocking it.
+func (s *Session) retryEstimate(generation uint64) {
+	if s.estimateTimer != nil {
+		s.estimateTimer.Stop()
+	}
+	s.estimateTimer = time.AfterFunc(time.Second, func() {
+		select {
+		case s.estimateRetry <- generation:
+		case <-s.done:
+		}
+	})
 }
 
 // report queues one patch for the host. It never waits, because the goroutine

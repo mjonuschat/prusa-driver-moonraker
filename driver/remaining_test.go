@@ -7,8 +7,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/mjonuschat/prusa-driver-moonraker/driver"
 	"github.com/mjonuschat/prusa-driver-moonraker/driver/moonrakersim"
 )
+
+func TestMetadataTimeoutIsRetriedWithoutAnotherStatusUpdate(t *testing.T) {
+	machine := startMachine(t, moonrakersim.Options{EstimatedTime: 1000})
+	machine.Silence("server.files.metadata")
+	connectUnit(t, moonraker.NewDriver(300*time.Millisecond), machine, "retry")
+	machine.Push(map[string]map[string]any{
+		"print_stats": {"state": "printing", "filename": "models/part.gcode", "print_duration": 1.0},
+	})
+	require.Eventually(t, func() bool { return len(machine.CallTimes("server.files.metadata")) == 1 }, time.Second, time.Millisecond)
+	// Wait until the first request's timeout has elapsed before allowing retries.
+	time.Sleep(500 * time.Millisecond)
+	machine.Unsilence("server.files.metadata")
+	require.Eventually(t, func() bool { return len(machine.CallTimes("server.files.metadata")) >= 2 }, 3*time.Second, 10*time.Millisecond)
+}
 
 func TestARunningPrintReportsItsTimeRemaining(t *testing.T) {
 	t.Parallel()
