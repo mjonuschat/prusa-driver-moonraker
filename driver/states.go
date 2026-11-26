@@ -28,6 +28,9 @@ const (
 	stateFinished connectorapi.StateName = "FINISHED"
 	stateStopped  connectorapi.StateName = "STOPPED"
 	stateError    connectorapi.StateName = "ERROR"
+	// stateBusy is Klipper starting, after a restart or while Moonraker waits
+	// for it. It is not a fault, and the session stays connected through it.
+	stateBusy connectorapi.StateName = "BUSY"
 )
 
 // states is this dialect's declared state set.
@@ -72,6 +75,9 @@ func states() connectorapi.StateSet {
 			{Name: stateFinished, DisplayName: "Finished", Accepts: accepts(startable, ended, idle, files, motion, levelling, tuning, filament)},
 			{Name: stateStopped, DisplayName: "Stopped", Accepts: accepts(startable, ended, idle, files, motion, levelling, tuning, filament)},
 			{Name: stateError, DisplayName: "Error", Accepts: accepts(always, idle, files)},
+			// Klipper refuses scripts and motion while it starts, so BUSY takes
+			// what ERROR takes: a reset, an emergency stop, reads and files.
+			{Name: stateBusy, DisplayName: "Busy", Accepts: accepts(always, idle, files)},
 		},
 		Transitions: []connectorapi.Transition{
 			{From: stateIdle, To: statePrinting, Verb: VerbStartPrint},
@@ -99,6 +105,31 @@ func states() connectorapi.StateSet {
 			{From: stateError, To: stateFinished},
 			{From: stateError, To: stateStopped},
 			{From: stateError, To: statePaused},
+			// A restart, from this driver or from anywhere else, takes the
+			// machine through BUSY while Klipper starts again. It comes out
+			// ready, or in ERROR when it could not start.
+			{From: stateIdle, To: stateBusy},
+			{From: statePrinting, To: stateBusy},
+			{From: statePaused, To: stateBusy},
+			{From: stateFinished, To: stateBusy},
+			{From: stateStopped, To: stateBusy},
+			{From: stateError, To: stateBusy},
+			{From: stateIdle, To: stateBusy, Verb: VerbResetPrinter},
+			{From: stateIdle, To: stateBusy, Verb: VerbReset},
+			{From: statePrinting, To: stateBusy, Verb: VerbResetPrinter},
+			{From: statePrinting, To: stateBusy, Verb: VerbReset},
+			{From: statePaused, To: stateBusy, Verb: VerbResetPrinter},
+			{From: statePaused, To: stateBusy, Verb: VerbReset},
+			{From: stateFinished, To: stateBusy, Verb: VerbResetPrinter},
+			{From: stateFinished, To: stateBusy, Verb: VerbReset},
+			{From: stateStopped, To: stateBusy, Verb: VerbResetPrinter},
+			{From: stateStopped, To: stateBusy, Verb: VerbReset},
+			{From: stateError, To: stateBusy, Verb: VerbResetPrinter},
+			{From: stateError, To: stateBusy, Verb: VerbReset},
+			{From: stateBusy, To: stateIdle},
+			{From: stateBusy, To: stateFinished},
+			{From: stateBusy, To: stateStopped},
+			{From: stateBusy, To: stateError},
 		},
 	}
 }

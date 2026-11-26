@@ -7,6 +7,12 @@ Write the entry in the same change as the code. One bullet per behaviour a
 person outside this repository can observe: a route, a setting, a screen, a
 refusal. Name the route and the setting key, never a function or a file.
 
+## 0.1.1 - unreleased
+
+### Fixed
+
+- Moonraker: after `RESTART` or `FIRMWARE_RESTART` (including Reset printer and Restart printer on the printer's page), the printer reads Busy while Klipper starts, then goes back to its print state and keeps reporting temperatures and progress. Before, Moonraker kept the connection open but dropped its subscriptions, so the page froze on the last reading until the module reconnected. If Klipper comes back with a different set of objects, the module reconnects to pick them up.
+
 ## 0.1.0 - 2026-11-20
 
 ### Added
