@@ -8,6 +8,8 @@ export interface MachineForm {
   unitUid: string;
   vendor: string;
   model: string;
+  /** A Moonraker API key, for a Moonraker that requires authorization. */
+  apiKey: string;
 }
 
 /** Moonraker's own default port, which the driver also adds to a bare host. */
@@ -82,10 +84,12 @@ export const endpointBody = (
 } => {
   const vendor = form.vendor.trim();
   const model = form.model.trim();
+  const apiKey = form.apiKey.trim();
   const options: Record<string, string> = {
     unit_uid: form.unitUid.trim() === '' ? form.name : form.unitUid.trim(),
     ...(vendor === '' ? {} : { vendor }),
     ...(model === '' ? {} : { model }),
+    ...(apiKey === '' ? {} : { api_key: apiKey }),
   };
 
   return {

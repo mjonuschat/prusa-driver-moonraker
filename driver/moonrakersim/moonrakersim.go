@@ -99,6 +99,10 @@ type Options struct {
 	// UpgradeStatus, when nonzero, is the HTTP status this host answers every
 	// upgrade request with, and no websocket is opened.
 	UpgradeStatus int
+	// APIKey, when set, is the only X-Api-Key this host accepts. A request
+	// without it, the upgrade or any HTTP one, is answered 401, as a Moonraker
+	// that requires authorization answers.
+	APIKey string
 	// Addr is the host:port to bind. Empty binds an ephemeral loopback port,
 	// which is what a test wants: two cases running at once must not have to
 	// agree about a number.
@@ -276,7 +280,7 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 	mux.HandleFunc("/server/files/upload", host.serveUpload)
 	mux.HandleFunc("/server/files/", host.serveThumbnail)
 
-	host.server = &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
+	host.server = &http.Server{Handler: requireKey(opts.APIKey, mux), ReadHeaderTimeout: readHeaderTimeout}
 
 	go func() { _ = host.server.Serve(listener) }()
 
@@ -681,4 +685,22 @@ func orElse(value, fallback string) string {
 	}
 
 	return value
+}
+
+// requireKey answers 401 to a request whose X-Api-Key is not key. An empty key
+// lets every request through.
+func requireKey(key string, next http.Handler) http.Handler {
+	if key == "" {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != key {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

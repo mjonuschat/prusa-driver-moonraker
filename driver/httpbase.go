@@ -46,6 +46,8 @@ func httpBase(websocketTarget string) (string, error) {
 // fetcher reads small bodies over HTTP.
 type fetcher struct {
 	client *http.Client
+	// apiKey goes on every request as the X-Api-Key header. Empty sends none.
+	apiKey string
 }
 
 func newFetcher(timeout time.Duration) *fetcher {
@@ -75,6 +77,8 @@ func (f *fetcher) get(ctx context.Context, target string, limit int64) ([]byte, 
 		return nil, redactCause(err, target, target)
 	}
 
+	setAPIKey(request, f.apiKey)
+
 	response, err := f.client.Do(request)
 	if err != nil {
 		return nil, redactCause(err, target, target)
@@ -96,4 +100,11 @@ func (f *fetcher) get(ctx context.Context, target string, limit int64) ([]byte, 
 	}
 
 	return body, nil
+}
+
+// setAPIKey puts key on request as the X-Api-Key header. Empty sets nothing.
+func setAPIKey(request *http.Request, key string) {
+	if key != "" {
+		request.Header.Set(apiKeyHeader, key)
+	}
 }

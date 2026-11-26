@@ -87,11 +87,13 @@
   "machines.model.help": "Optional. Klipper reports no model, so the host name shows when this is empty.",
   "machines.vendor.label": "Vendor",
   "machines.vendor.help": "Optional. Shown as Klipper when empty.",
+  "machines.apiKey.label": "API key",
+  "machines.apiKey.help": "Only for a Moonraker that requires authorization. Sent as the X-Api-Key header.",
 
   "machines.waiting.title": "Connecting",
   "machines.waiting.lead": "Added {name}. Waiting for the printer to answer.",
   "machines.waiting.slow.title": "It has not connected yet",
-  "machines.waiting.slow.body": "Check that Moonraker answers at {address}, and that the server configuration has a connector named {connector} with type moonraker. A Moonraker that needs an API key is not supported yet.",
+  "machines.waiting.slow.body": "Check that Moonraker answers at {address}, and that the server configuration has a connector named {connector} with type moonraker. A Moonraker that requires authorization needs its API key under Advanced.",
 
   "machines.connected.title": "Connected",
   "machines.connected.lead": "{name} is connected.",
