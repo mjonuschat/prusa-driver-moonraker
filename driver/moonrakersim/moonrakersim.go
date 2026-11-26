@@ -61,6 +61,16 @@ const (
 // notifyStatusUpdate is the notification a subscription arrives as.
 const notifyStatusUpdate = "notify_status_update"
 
+// The notifications Moonraker sends when its link to Klipper changes.
+const (
+	notifyKlippyDisconnected = "notify_klippy_disconnected"
+	notifyKlippyReady        = "notify_klippy_ready"
+)
+
+// defaultStartup is how long a restarted Klipper takes to start when
+// Options.StartupFor is zero.
+const defaultStartup = 200 * time.Millisecond
+
 // methodNotFound is the JSON-RPC code for a method the server does not have.
 const methodNotFound = -32601
 
@@ -134,6 +144,19 @@ type Options struct {
 	// Zero is off.
 	UploadStoresSize int64
 
+	// RestartKeepsConnection makes printer.restart and printer.firmware_restart
+	// behave as Moonraker does: the call is answered "ok" and the websocket
+	// stays open, notify_klippy_disconnected is sent and every subscription is
+	// dropped, printer.info reports "startup" for StartupFor, and then
+	// notify_klippy_ready is sent. Without it a restart hangs up instead.
+	RestartKeepsConnection bool
+	// StartupFor is how long a restarted Klipper takes to start. Zero takes
+	// 200 ms.
+	StartupFor time.Duration
+	// ObjectsAfterRestart, when not nil, is what printer.objects.list answers
+	// once a restart has finished, as after a configuration change.
+	ObjectsAfterRestart []string
+
 	// Spoolman is the machine's Spoolman component. Nil means it has none, and
 	// the Spoolman methods answer method-not-found.
 	Spoolman *Spoolman
@@ -187,6 +210,11 @@ type Host struct {
 	version  string
 	objects  []string
 
+	keepOnRestart       bool
+	startupFor          time.Duration
+	objectsAfterRestart []string
+	klippyState         string
+
 	mu             sync.Mutex
 	status         map[string]map[string]any
 	refused        map[string]string
@@ -223,6 +251,9 @@ type Host struct {
 // one writer at a time.
 type link struct {
 	conn *websocket.Conn
+	// subscribed is whether this connection has a live subscription. Moonraker
+	// drops every subscription when Klipper disconnects. Guarded by Host.mu.
+	subscribed bool
 
 	mu sync.Mutex
 }
@@ -258,6 +289,15 @@ func Start(ctx context.Context, opts Options) (*Host, error) {
 		refused:   maps.Clone(opts.Refused),
 
 		upgradeStatus: opts.UpgradeStatus,
+
+		keepOnRestart:       opts.RestartKeepsConnection,
+		startupFor:          opts.StartupFor,
+		objectsAfterRestart: slices.Clone(opts.ObjectsAfterRestart),
+		klippyState:         "ready",
+	}
+
+	if host.startupFor <= 0 {
+		host.startupFor = defaultStartup
 	}
 
 	host.initFiles(opts)
@@ -361,7 +401,13 @@ func (h *Host) Push(status map[string]map[string]any) {
 		maps.Copy(h.status[object], fields)
 	}
 
-	open := slices.Clone(h.conns)
+	var open []*link
+
+	for _, held := range h.conns {
+		if held.subscribed {
+			open = append(open, held)
+		}
+	}
 	h.mu.Unlock()
 
 	frame := map[string]any{
@@ -414,7 +460,23 @@ func (h *Host) serve(w http.ResponseWriter, r *http.Request) {
 		h.record(request.Method, request.Params)
 
 		if h.restarts(request.Method) {
-			return
+			if !h.keepOnRestart {
+				return
+			}
+
+			if err = open.write(resultFrame(*request.ID, "ok")); err != nil {
+				return
+			}
+
+			go h.restartKlippy()
+
+			continue
+		}
+
+		if request.Method == methodObjectsSubscribe {
+			h.mu.Lock()
+			open.subscribed = true
+			h.mu.Unlock()
 		}
 
 		if h.isSilenced(request.Method) {
@@ -458,12 +520,20 @@ func (h *Host) answer(id uint64, method string, params json.RawMessage) map[stri
 
 	switch method {
 	case methodPrinterInfo:
+		h.mu.Lock()
+		state := h.klippyState
+		h.mu.Unlock()
+
 		return resultFrame(id, map[string]any{
-			"state": "ready", "state_message": "Printer is ready",
+			"state": state, "state_message": "Printer is " + state,
 			"hostname": h.hostname, "software_version": h.version,
 		})
 	case methodObjectsList:
-		return resultFrame(id, map[string]any{"objects": h.objects})
+		h.mu.Lock()
+		objects := slices.Clone(h.objects)
+		h.mu.Unlock()
+
+		return resultFrame(id, map[string]any{"objects": objects})
 	case methodObjectsQuery, methodObjectsSubscribe:
 		return resultFrame(id, map[string]any{
 			"eventtime": h.clock(), "status": h.reading(params),
@@ -527,6 +597,53 @@ func (h *Host) recordFilename(params json.RawMessage) {
 	h.filenames = append(h.filenames, sent.Filename)
 }
 
+// restartKlippy is Klipper restarting behind a Moonraker that stays up: every
+// subscription goes, Klipper reports startup, and after startupFor it is ready
+// again.
+func (h *Host) restartKlippy() {
+	h.mu.Lock()
+	h.klippyState = "startup"
+
+	if h.status["webhooks"] == nil {
+		h.status["webhooks"] = map[string]any{}
+	}
+
+	h.status["webhooks"]["state"] = "startup"
+
+	for _, held := range h.conns {
+		held.subscribed = false
+	}
+
+	open := slices.Clone(h.conns)
+	h.mu.Unlock()
+
+	h.notify(open, notifyKlippyDisconnected)
+
+	time.Sleep(h.startupFor)
+
+	h.mu.Lock()
+	h.klippyState = "ready"
+	h.status["webhooks"]["state"] = "ready"
+
+	if h.objectsAfterRestart != nil {
+		h.objects = slices.Clone(h.objectsAfterRestart)
+	}
+
+	open = slices.Clone(h.conns)
+	h.mu.Unlock()
+
+	h.notify(open, notifyKlippyReady)
+}
+
+// notify sends one notification with no params to each connection.
+func (h *Host) notify(open []*link, method string) {
+	frame := map[string]any{"jsonrpc": jsonrpcVersion, "method": method}
+
+	for _, held := range open {
+		_ = held.write(frame)
+	}
+}
+
 // restarts reports whether the call restarts Klipper and is not refused. Such a
 // call is never answered. The connection closes and the held webhooks state
 // returns to ready, as it does when the machine comes back.
@@ -537,6 +654,10 @@ func (h *Host) restarts(method string) bool {
 
 	if _, refused := h.refusal(method); refused {
 		return false
+	}
+
+	if h.keepOnRestart {
+		return true
 	}
 
 	h.mu.Lock()

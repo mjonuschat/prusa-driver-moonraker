@@ -135,3 +135,29 @@ func TestEveryStateHasAnEntryAndAnExitInTheTransitions(t *testing.T) {
 		require.Truef(t, left, "nothing leaves %s", state.Name)
 	}
 }
+
+// BUSY is Klipper starting. It takes what ERROR takes, and a restart reaches it
+// from every state.
+func TestBusyTakesWhatErrorTakesAndEveryStateReachesIt(t *testing.T) {
+	t.Parallel()
+
+	set := declaredSet(t)
+
+	for _, verb := range (&moonraker.Driver{}).Baseline().Keys() {
+		require.Equalf(t, set.Accepted("ERROR", verb), set.Accepted("BUSY", verb), "%s in BUSY", verb)
+	}
+
+	declared := func(from, to connectorapi.StateName, verb connectorapi.Capability) bool {
+		return slices.Contains(set.Transitions, connectorapi.Transition{From: from, To: to, Verb: verb})
+	}
+
+	for _, from := range []connectorapi.StateName{"IDLE", "PRINTING", "PAUSED", "FINISHED", "STOPPED", "ERROR"} {
+		require.Truef(t, declared(from, "BUSY", ""), "%s to BUSY", from)
+		require.Truef(t, declared(from, "BUSY", moonraker.VerbResetPrinter), "%s to BUSY on reset_printer", from)
+		require.Truef(t, declared(from, "BUSY", moonraker.VerbReset), "%s to BUSY on reset", from)
+	}
+
+	for _, to := range []connectorapi.StateName{"IDLE", "ERROR"} {
+		require.Truef(t, declared("BUSY", to, ""), "BUSY to %s", to)
+	}
+}

@@ -45,6 +45,17 @@ const notifySpoolmanStatusChanged = "notify_spoolman_status_changed"
 // Spoolman spool changes. Its first param carries spool_id, a number or null.
 const notifyActiveSpoolSet = "notify_active_spool_set"
 
+// The notifications Moonraker sends when its own link to Klipper changes. A
+// RESTART or FIRMWARE_RESTART ends that link while the websocket to Moonraker
+// stays open: Moonraker answers the restart with "ok", sends
+// notify_klippy_disconnected and drops every object subscription, and Klipper
+// then starts again. A client has to subscribe again once Klipper is back.
+const (
+	notifyKlippyDisconnected = "notify_klippy_disconnected"
+	notifyKlippyReady        = "notify_klippy_ready"
+	notifyKlippyShutdown     = "notify_klippy_shutdown"
+)
+
 // notifyFilelistChanged is the notification Moonraker sends when a file or
 // folder under a root changes.
 const notifyFilelistChanged = "notify_filelist_changed"

@@ -180,6 +180,20 @@ type Session struct {
 	released      chan struct{}
 	estimateTimer *time.Timer
 
+	// listed is what printer.objects.list answered during the handshake. A
+	// Klipper that comes back from a restart with a different list had its
+	// configuration changed, and the probe built from this one no longer holds.
+	listed []string
+	// rejoining is whether the session is waiting for Klipper to come back
+	// after a restart. Only the reader reads or writes it.
+	rejoining bool
+	// rejoinAsking is whether a question to Klipper is on the wire, so a
+	// ready notification and the poll do not ask twice. Reader only.
+	rejoinAsking bool
+	// rejoinRetry tells the reader to ask Klipper again whether it is up.
+	rejoinRetry chan struct{}
+	rejoinTimer *time.Timer
+
 	dropped atomic.Uint64
 	refused atomic.Uint64
 }
@@ -209,6 +223,7 @@ func newSession(conn *websocket.Conn, timeout time.Duration, live liveness, log 
 		expired:       make(chan uint64, expiredBacklog),
 		estimateRetry: make(chan uint64, 1),
 		released:      make(chan struct{}, 1),
+		rejoinRetry:   make(chan struct{}, 1),
 	}
 }
 
@@ -232,6 +247,8 @@ func (s *Session) handshake(ctx context.Context, offered connectorapi.Set) (conn
 	if err := s.callSync(ctx, methodObjectsList, nil, &listed); err != nil {
 		return nil, err
 	}
+
+	s.listed = slices.Clone(listed.Objects)
 
 	extruders := extrudersOf(listed.Objects)
 	s.asked = append(present(subscribed, listed.Objects), furtherExtruders(extruders)...)
@@ -817,6 +834,10 @@ func (s *Session) read() {
 		if s.estimateTimer != nil {
 			s.estimateTimer.Stop()
 		}
+
+		if s.rejoinTimer != nil {
+			s.rejoinTimer.Stop()
+		}
 	}()
 
 	s.askEstimate()
@@ -847,6 +868,8 @@ func (s *Session) read() {
 			}
 		case id := <-s.expired:
 			s.expire(id)
+		case <-s.rejoinRetry:
+			s.askKlippy()
 		case generation := <-s.estimateRetry:
 			if generation == s.reader.prints.estimateGeneration {
 				s.reader.prints.requested = ""
@@ -918,6 +941,16 @@ func (s *Session) dispatch(data []byte) {
 	}
 
 	switch frame.Method {
+	case notifyKlippyDisconnected:
+		s.klippyGone()
+	case notifyKlippyReady:
+		// The poll would find this within a second. Asking now makes the
+		// machine read as ready as soon as Moonraker says it is.
+		if s.rejoining {
+			s.askKlippy()
+		}
+	case notifyKlippyShutdown:
+		s.update(json.RawMessage(`[{"webhooks":{"state":"shutdown"}}]`))
 	case notifyStatusUpdate:
 		s.update(frame.Params)
 	case notifyFilelistChanged:

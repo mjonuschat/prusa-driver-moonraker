@@ -420,8 +420,9 @@ type machineState struct {
 
 // appendState maps Klipper's own state words onto the one every dialect here
 // reports. It writes /state only when this call supplied a non-empty value. A
-// webhooks state other than "ready" is ERROR; otherwise the print state is
-// mapped, and nothing is written while none has been heard.
+// webhooks state of "startup" is BUSY, which is Klipper starting after a
+// restart and not a fault; any other state but "ready" is ERROR. Otherwise the
+// print state is mapped, and nothing is written while none has been heard.
 func (m *machineState) appendState(
 	out []connectorapi.StatePatch, printState, hookState json.RawMessage,
 ) []connectorapi.StatePatch {
@@ -444,6 +445,8 @@ func (m *machineState) appendState(
 	var word string
 
 	switch {
+	case m.hook == klipperStartup:
+		word = string(stateBusy)
 	case m.hook != "" && m.hook != "ready":
 		word = "ERROR"
 		m.held = ""
@@ -495,6 +498,10 @@ func (m *machineState) release(out []connectorapi.StatePatch) []connectorapi.Sta
 
 // klipperStandby is print_stats.state when no print is loaded.
 const klipperStandby = "standby"
+
+// klipperStartup is webhooks.state while Klipper is starting, as it is for a
+// few seconds after every RESTART and FIRMWARE_RESTART.
+const klipperStartup = "startup"
 
 // noteEnd updates the held end word for the print state just heard, given the
 // one before it. A print error is not held: ERROR refuses start_print, so

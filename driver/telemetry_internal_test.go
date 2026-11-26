@@ -429,8 +429,34 @@ func TestAWebhooksReadingAloneBeforeAnyPrintStateWritesNothing(t *testing.T) {
 	held = &reader{}
 	patches = held.patchesFrom(reading(`{"webhooks": {"state": "startup"}}`, t), 0, time.Unix(0, 0))
 
+	if got, _ := stateOf(patches); got != `"BUSY"` {
+		t.Errorf("/state = %s, want \"BUSY\"", got)
+	}
+
+	held = &reader{}
+	patches = held.patchesFrom(reading(`{"webhooks": {"state": "error"}}`, t), 0, time.Unix(0, 0))
+
 	if got, _ := stateOf(patches); got != `"ERROR"` {
 		t.Errorf("/state = %s, want \"ERROR\"", got)
+	}
+}
+
+// A Klipper that is starting reads BUSY over whatever print_stats said last,
+// and the print state shows again once it is ready.
+func TestStartingKlipperReadsBusyAndReadyRestoresThePrintState(t *testing.T) {
+	t.Parallel()
+
+	held := &reader{}
+	held.patchesFrom(reading(`{"print_stats": {"state": "standby"}, "webhooks": {"state": "ready"}}`, t), 0, time.Unix(0, 0))
+
+	patches := held.patchesFrom(reading(`{"webhooks": {"state": "startup"}}`, t), 0, time.Unix(0, 0))
+	if got, _ := stateOf(patches); got != `"BUSY"` {
+		t.Errorf("/state = %s while starting, want \"BUSY\"", got)
+	}
+
+	patches = held.patchesFrom(reading(`{"webhooks": {"state": "ready"}}`, t), 0, time.Unix(0, 0))
+	if got, _ := stateOf(patches); got != `"IDLE"` {
+		t.Errorf("/state = %s once ready, want \"IDLE\"", got)
 	}
 }
 
