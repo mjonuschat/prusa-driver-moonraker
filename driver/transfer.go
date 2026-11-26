@@ -98,6 +98,7 @@ func (s *Session) Send(ctx context.Context, up connectorapi.Upload) error {
 	}
 
 	request.Header.Set("Content-Type", form.FormDataContentType())
+	setAPIKey(request, s.apiKey)
 
 	reports.report(0)
 

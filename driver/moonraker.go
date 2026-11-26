@@ -8,6 +8,10 @@
 // section is not offered pause, and one with no virtual_sdcard is not offered
 // printing. The heater bounds are the machine's own.
 //
+// A Moonraker that requires authorization takes the endpoint option api_key,
+// one of its API keys. It is sent as the X-Api-Key header on the websocket
+// upgrade and on every HTTP request, never in the address.
+//
 // Klipper reports no vendor, model or serial. The endpoint options give them:
 //
 //	vendor    who made the machine. Empty reports "Klipper"
@@ -73,17 +77,26 @@ var (
 	// during the identity exchange, so no session was built.
 	ErrRefused = errors.New("moonraker: the machine refused a call")
 	// ErrUnauthorized reports a machine that refused the upgrade with a 401 or
-	// 403, because it wants credentials this driver does not send.
+	// 403: it wants an API key and none was set, or it refused the one sent.
 	ErrUnauthorized = errors.New("moonraker: authorization required")
 )
 
 // UnauthorizedError is the error Connect returns for a refused upgrade. It
-// carries the HTTP status, which gorilla's handshake error does not.
+// carries the HTTP status, which gorilla's handshake error does not, and
+// whether an API key was sent, so the text says what to change. It never
+// carries the key.
 type UnauthorizedError struct {
-	Status int
+	Status  int
+	KeySent bool
 }
 
-func (e *UnauthorizedError) Error() string { return ErrUnauthorized.Error() }
+func (e *UnauthorizedError) Error() string {
+	if e.KeySent {
+		return ErrUnauthorized.Error() + ": Moonraker refused the endpoint option " + optionAPIKey
+	}
+
+	return ErrUnauthorized.Error() + ": set the endpoint option " + optionAPIKey + " to a Moonraker API key"
+}
 
 func (e *UnauthorizedError) Is(target error) bool { return target == ErrUnauthorized }
 
@@ -119,7 +132,8 @@ func doc() extension.Doc {
 	return extension.Doc{
 		Summary: "A Klipper machine reached through Moonraker, over one JSON-RPC websocket.",
 		Description: "The host dials the address the endpoint list holds, asks Moonraker what the machine " +
-			"is, and subscribes to the Klipper objects it reads telemetry from. What the machine reports " +
+			"is, and subscribes to the Klipper objects it reads telemetry from. A Moonraker that requires " +
+			"authorization takes one of its API keys in the endpoint option api_key. What the machine reports " +
 			"under printer.objects.list narrows what is offered, so a machine with no pause_resume " +
 			"section is not offered pause. The endpoint options vendor, model, serial and unit_uid say " +
 			"what Klipper itself does not report. The options chamber_object, bed_fans_object, part_fan_object, " +
@@ -137,6 +151,11 @@ func doc() extension.Doc {
 				Type:    extension.OptionDuration,
 				Default: "10s",
 				Summary: "How long one call to the machine may take before it is abandoned.",
+			},
+			{
+				Key:     optionAPIKey,
+				Type:    extension.OptionSecret,
+				Summary: "A Moonraker API key, for a Moonraker that requires authorization. Sent as the X-Api-Key header.",
 			},
 			{
 				Key:     "chamber_object",
@@ -323,11 +342,13 @@ func (d *Driver) Connect(
 		return nil, err
 	}
 
-	conn, response, err := d.dialer.DialContext(ctx, target, nil)
+	key := strings.TrimSpace(endpoint.Options[optionAPIKey])
+
+	conn, response, err := d.dialer.DialContext(ctx, target, apiKeyHeaders(key))
 	if err != nil {
 		if response != nil &&
 			(response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
-			return nil, &UnauthorizedError{Status: response.StatusCode}
+			return nil, &UnauthorizedError{Status: response.StatusCode, KeySent: key != ""}
 		}
 
 		return nil, fmt.Errorf("%w: %s: %w", ErrUnreachable, redactAddress(target),
@@ -342,7 +363,9 @@ func (d *Driver) Connect(
 
 	session := newSession(conn, d.timeout, d.live, d.log)
 	session.httpBase = base
+	session.apiKey = key
 	session.fetch = newFetcher(d.timeout)
+	session.fetch.apiKey = key
 	session.upload = newUploadClient()
 	session.folders = &d.folders
 	session.paths = &d.paths
@@ -401,6 +424,10 @@ const (
 	optionModel   = "model"
 	optionSerial  = "serial"
 	optionUnitUID = "unit_uid"
+	optionAPIKey  = "api_key"
+
+	// apiKeyHeader is where Moonraker reads an API key.
+	apiKeyHeader = "X-Api-Key"
 
 	// defaultVendor is the vendor of a machine that names none.
 	defaultVendor = "Klipper"
@@ -469,4 +496,13 @@ func decodeResult(method string, result json.RawMessage, into any) error {
 	}
 
 	return nil
+}
+
+// apiKeyHeaders is the header that carries key, or nil when there is none.
+func apiKeyHeaders(key string) http.Header {
+	if key == "" {
+		return nil
+	}
+
+	return http.Header{apiKeyHeader: []string{key}}
 }

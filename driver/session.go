@@ -136,7 +136,10 @@ type Session struct {
 	httpBase string
 	fetch    *fetcher
 	// upload sends files, which a client with a timeout would cut short.
-	upload  *http.Client
+	upload *http.Client
+	// apiKey is the endpoint's api_key, sent on every HTTP request. Empty
+	// sends none.
+	apiKey  string
 	sending atomic.Bool
 
 	// reader gives each Klipper print an id, which the machine does not, and

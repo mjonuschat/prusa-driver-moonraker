@@ -36,7 +36,8 @@ func TestARefusedUpgradeSaysAuthorizationIsRequired(t *testing.T) {
 
 			err := connectTo(t, status)
 
-			require.EqualError(t, err, "moonraker: authorization required")
+			require.EqualError(t, err,
+				"moonraker: authorization required: set the endpoint option api_key to a Moonraker API key")
 			require.ErrorIs(t, err, moonraker.ErrUnauthorized)
 			require.NotErrorIs(t, err, moonraker.ErrUnreachable)
 

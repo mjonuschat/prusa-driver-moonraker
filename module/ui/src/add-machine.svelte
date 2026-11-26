@@ -62,6 +62,7 @@
     unitUid: '',
     vendor: '',
     model: '',
+    apiKey: '',
   });
   let touchedName = $state(false);
   let showErrors = $state(false);
@@ -318,6 +319,21 @@
                     autocomplete: 'off',
                     oninput: (event: Event) => {
                       form.vendor = (
+                        event.currentTarget as HTMLInputElement
+                      ).value;
+                    },
+                  }}
+                />
+                <Field
+                  label={t('machines.apiKey.label')}
+                  description={t('machines.apiKey.help')}
+                  control={Input}
+                  controlProps={{
+                    value: form.apiKey,
+                    type: 'password',
+                    autocomplete: 'off',
+                    oninput: (event: Event) => {
+                      form.apiKey = (
                         event.currentTarget as HTMLInputElement
                       ).value;
                     },

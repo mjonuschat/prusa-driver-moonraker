@@ -69,6 +69,8 @@ rm -r ~/prusa-connect
 
 In Settings, under Extensions, open Moonraker and press Add printer. Enter the printer's address, a name, and optionally a model. A host name or IP address works, with a port if it is not 7125.
 
+If Moonraker requires authorization, enter one of its API keys under Advanced. It is stored as the endpoint option `api_key` and sent as the `X-Api-Key` header. Without it the connection fails with `moonraker: authorization required`.
+
 ## Hardware
 
 The pencil on a printer's row opens its hardware. Each field takes a section name from your Klipper configuration, for example `temperature_sensor Chamber_Top`. An empty field lets the driver choose, and its placeholder shows what it found. `none` turns the part off. If a name matches no section in the printer's configuration, the page warns you after you save.
@@ -91,7 +93,6 @@ Loading and unloading filament require the macros `LOAD_FILAMENT` and `UNLOAD_FI
 
 ## Known limitations
 
-- Moonraker must not require authorization, or the connection fails with `moonraker: authorization required`.
 - Prusa Connect shows only the first toolhead's spool, and it cannot change the active spool.
 - The Moonraker page lists printers added under the connector name `moonraker`.
 

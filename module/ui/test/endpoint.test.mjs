@@ -9,6 +9,7 @@ const form = {
   unitUid: '',
   vendor: '',
   model: '',
+  apiKey: '',
 };
 
 await test('a new endpoint is created only if its name is unused', () => {
@@ -40,4 +41,12 @@ await test('correcting a created endpoint uses its version and the same name', (
   assert.deepEqual(request.header, { 'If-Match': '"v2"' });
   assert.equal(request.body.address, 'fixed.local');
   assert.equal(request.body.options.unit_uid, 'voron');
+});
+
+await test('an API key is sent as the api_key option only when one is typed', () => {
+  assert.equal('api_key' in endpointWrite(form).body.options, false);
+  assert.equal(
+    endpointWrite({ ...form, apiKey: '  k3y  ' }).body.options.api_key,
+    'k3y',
+  );
 });
